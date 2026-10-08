@@ -1,0 +1,21 @@
+services:
+  daren2mqtt:
+    image: ghcr.io/dcro/daren2mqtt:latest
+    container_name: daren2mqtt
+    restart: unless-stopped
+    environment:
+      TZ: Europe/London
+      MQTT_HOST: 192.168.1.10
+      MQTT_USERNAME: daren2mqtt
+      MQTT_PASSWORD: change-me
+      DAREN2MQTT_CONFIG: |
+        interval: 30
+        packs:
+          - id: battery1
+            name: Battery 1
+            host: 192.168.1.50
+            address: 0
+          - id: battery2
+            name: Battery 2
+            host: 192.168.1.51
+            address: 1
