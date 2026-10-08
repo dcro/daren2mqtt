@@ -4,7 +4,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import tempfile
+import time
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import aiomqtt
 
@@ -18,6 +21,8 @@ log = logging.getLogger(__name__)
 
 OFFLINE_AFTER = 3  # consecutive failed reads before a pack is reported unavailable
 MQTT_RETRY = 10  # seconds
+HEARTBEAT = 15  # seconds between touches of the health file while connected to MQTT
+HEALTH_FILE = Path(tempfile.gettempdir()) / "daren2mqtt.health"
 
 Publish = Callable[[str, str, bool], Awaitable[None]]
 
@@ -148,6 +153,7 @@ async def _session(bridge: Bridge, bridge_topic: str, ha_status: str) -> None:
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(_follow_home_assistant(client, bridge))
+                tg.create_task(_heartbeat())
                 for pack in bridge.packs:
                     tg.create_task(bridge.poll_forever(pack))
         except asyncio.CancelledError:
@@ -163,3 +169,17 @@ async def _follow_home_assistant(client: aiomqtt.Client, bridge: Bridge) -> None
         if message.payload == b"online":
             log.info("Home Assistant started, publishing discovery")
             await bridge.announce()
+
+
+async def _heartbeat() -> None:
+    while True:
+        HEALTH_FILE.touch()
+        await asyncio.sleep(HEARTBEAT)
+
+
+def healthy(max_age: float = 3 * HEARTBEAT) -> bool:
+    """True while a running bridge is connected to MQTT (used by the container health check)."""
+    try:
+        return time.time() - HEALTH_FILE.stat().st_mtime < max_age
+    except OSError:
+        return False
