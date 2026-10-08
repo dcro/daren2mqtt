@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             state = asyncio.run(_read(*args.target, args.timeout))
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
-            print(f"error: {exc or type(exc).__name__}", file=sys.stderr)
+            print(f"error: {str(exc) or 'no reply'}", file=sys.stderr)
             return 1
         print(json.dumps(state, indent=2))
         return 0

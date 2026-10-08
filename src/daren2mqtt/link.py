@@ -34,6 +34,8 @@ class Link:
         async with self._lock:
             try:
                 return await self._exchange(frame, address)
+            except TimeoutError:
+                raise  # a silent pack is not a broken connection
             except (OSError, EOFError, asyncio.LimitOverrunError):
                 await self.close()  # reconnect on the next request
                 raise

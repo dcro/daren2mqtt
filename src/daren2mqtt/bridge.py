@@ -82,9 +82,7 @@ class Bridge:
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
             pack.failures += 1
             level = logging.WARNING if pack.failures in (1, OFFLINE_AFTER) else logging.DEBUG
-            log.log(
-                level, "%s: read failed (%d in a row): %s", pack, pack.failures, exc or type(exc).__name__
-            )
+            log.log(level, "%s: read failed (%d in a row): %s", pack, pack.failures, str(exc) or "no reply")
             if pack.failures >= OFFLINE_AFTER and pack.online is not False:
                 await self._set_online(pack, False)
             return

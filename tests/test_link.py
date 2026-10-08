@@ -71,6 +71,21 @@ def test_silent_pack_times_out():
         run(go())
 
 
+def test_silent_pack_keeps_the_connection():
+    async def go():
+        async with FakeGateway({0: analog_reply(0)}) as gw:
+            link = Link("127.0.0.1", gw.port, timeout=0.2)
+            try:
+                with pytest.raises(TimeoutError):
+                    await link.request(analog_request(5), 5)
+                await link.request(analog_request(0), 0)
+            finally:
+                await link.close()
+            return gw.connections
+
+    assert run(go()) == 1
+
+
 def test_requests_are_serialized_and_connection_reused():
     async def go():
         async with FakeGateway({0: analog_reply(0, soc=10.0), 1: analog_reply(1, soc=20.0)}) as gw:
