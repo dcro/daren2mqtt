@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+      - name: Tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "$GITHUB_REF_NAME" = "v$(uv version --short)"
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
