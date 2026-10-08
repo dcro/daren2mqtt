@@ -1,0 +1,37 @@
+[project]
+name = "daren2mqtt"
+version = "0.1.0"
+description = "Daren BMS (RS485, YD/T 1363) to MQTT with Home Assistant discovery"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dan Cotora" }]
+requires-python = ">=3.13"
+dependencies = [
+    "aiomqtt>=2.5.1",
+    "pydantic>=2.14.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+daren2mqtt = "daren2mqtt.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.15,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
