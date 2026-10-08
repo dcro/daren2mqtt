@@ -67,6 +67,13 @@ def test_discovery_components():
     }
     assert cmps["problem"]["value_template"] == "{{ 'ON' if value_json.problem else 'OFF' }}"
     assert cmps["problem"]["device_class"] == "problem"
+    assert cmps["cell_16"]["name"] == "Cell voltage 16" and "cell_17" not in cmps
+    assert cmps["temperature_4"]["name"] == "Cell temperature 4"
+    assert "entity_category" not in cmps["charge_mos"]
+
+
+def test_discovery_device_model():
+    assert ha.discovery(MqttConfig(), PACK, 16, 4)["dev"]["model"] == "16S BMS"
 
 
 def test_topics():

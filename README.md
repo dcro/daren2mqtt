@@ -104,7 +104,7 @@ Current and power are **positive while discharging**, as most inverters report t
 
 Each pack's state contains:
 
-- state of charge, voltage, current, power and state (charging, discharging, idle);
+- state of charge, voltage, current, power and status (charging, discharging, idle);
 - state of health, remaining and full capacity, and cycles;
 - every cell voltage, cell min, max and delta, and the index of the lowest and highest cell;
 - ambient, pack and MOS temperatures, plus every temperature sensor;
