@@ -34,6 +34,10 @@ services:
     image: ghcr.io/dcro/daren2mqtt:latest
     container_name: daren2mqtt
     restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       MQTT_HOST: 192.168.1.10
       MQTT_USERNAME: daren2mqtt
@@ -112,6 +116,18 @@ Each pack's state contains:
 - balancing and the cells being balanced;
 - active alarms, protections and faults ("OK" when none), and a problem flag that turns on
   for protections and faults (alarms are only warnings).
+
+## Security
+
+- The YD/T 1363 protocol has no authentication. Anyone who can reach a gateway's TCP port
+  can read the packs, feed false values to daren2mqtt and send **write** commands to the
+  BMS. Keep the gateways on an isolated network (VLAN or firewall rules) that only the
+  daren2mqtt host can reach, and change their default web passwords.
+- MQTT runs without TLS, so use it on a trusted network only.
+- The container runs as an unprivileged user, opens no ports and works with a read-only root
+  file system, as in the example above.
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Development
 

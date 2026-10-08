@@ -3,6 +3,10 @@ services:
     image: ghcr.io/dcro/daren2mqtt:latest
     container_name: daren2mqtt
     restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       TZ: Europe/London
       MQTT_HOST: 192.168.1.10
