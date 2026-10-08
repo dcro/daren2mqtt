@@ -9,6 +9,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 DEFAULT_FILE = "/config/config.yaml"
+# MQTT topic levels without wildcards, spaces or empty levels, e.g. "home/daren2mqtt"
+TOPIC = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$")]
 MQTT_ENV = {
     "MQTT_HOST": "host",
     "MQTT_PORT": "port",
@@ -26,9 +28,9 @@ class MqttConfig(_Strict):
     port: int = 1883
     username: str | None = None
     password: SecretStr | None = None
-    client_id: str = "daren2mqtt"
-    base_topic: str = "daren2mqtt"
-    discovery_prefix: str = "homeassistant"
+    client_id: Annotated[str, Field(min_length=1)] = "daren2mqtt"
+    base_topic: TOPIC = "daren2mqtt"
+    discovery_prefix: TOPIC = "homeassistant"
 
 
 class PackConfig(_Strict):

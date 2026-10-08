@@ -54,6 +54,10 @@ def test_missing_config(tmp_path):
         "interval: 1\npacks:\n  - {id: a, host: h}",
         "- not a mapping",
         "packs: [",
+        "mqtt: {base_topic: 'bms/#'}\npacks:\n  - {id: a, host: h}",
+        "mqtt: {discovery_prefix: 'home assistant'}\npacks:\n  - {id: a, host: h}",
+        "mqtt: {base_topic: 'bms/'}\npacks:\n  - {id: a, host: h}",
+        "mqtt: {client_id: ''}\npacks:\n  - {id: a, host: h}",
     ],
 )
 def test_invalid_config(text):
@@ -79,3 +83,7 @@ def test_errors_never_show_the_password(mqtt):
 def test_numeric_password_hint():
     with pytest.raises(ConfigError, match=r"mqtt\.password: .*put the value in quotes"):
         load({"DAREN2MQTT_CONFIG": "mqtt:\n  password: 1234\n" + PACKS})
+
+
+def test_nested_base_topic():
+    assert load({"DAREN2MQTT_CONFIG": "mqtt: {base_topic: home/bms}\n" + PACKS}).mqtt.base_topic == "home/bms"
