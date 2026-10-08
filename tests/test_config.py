@@ -27,7 +27,8 @@ def test_mqtt_environment_overrides_yaml():
     yaml = PACKS + "mqtt:\n  host: broker\n  username: yaml\n"
     env = {"DAREN2MQTT_CONFIG": yaml, "MQTT_HOST": "mosquitto", "MQTT_PORT": "1884", "MQTT_PASSWORD": "pw"}
     m = load(env).mqtt
-    assert (m.host, m.port, m.username, m.password) == ("mosquitto", 1884, "yaml", "pw")
+    assert (m.host, m.port, m.username) == ("mosquitto", 1884, "yaml")
+    assert m.password.get_secret_value() == "pw" and "pw" not in repr(m)
 
 
 def test_config_file(tmp_path):
@@ -58,3 +59,23 @@ def test_missing_config(tmp_path):
 def test_invalid_config(text):
     with pytest.raises(ConfigError):
         load({"DAREN2MQTT_CONFIG": text})
+
+
+@pytest.mark.parametrize(
+    "mqtt",
+    [
+        "password: 123456789",  # a number, not a string
+        "passwd: 123456789",  # unknown key
+        "password: [123456789]",
+        'password: "123456789"x',  # YAML syntax error on the password line
+    ],
+)
+def test_errors_never_show_the_password(mqtt):
+    with pytest.raises(ConfigError) as info:
+        load({"DAREN2MQTT_CONFIG": f"mqtt:\n  {mqtt}\n" + PACKS})
+    assert "123456789" not in str(info.value)
+
+
+def test_numeric_password_hint():
+    with pytest.raises(ConfigError, match=r"mqtt\.password: .*put the value in quotes"):
+        load({"DAREN2MQTT_CONFIG": "mqtt:\n  password: 1234\n" + PACKS})

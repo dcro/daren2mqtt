@@ -134,7 +134,7 @@ async def _session(bridge: Bridge, bridge_topic: str, ha_status: str) -> None:
         m.host,
         m.port,
         username=m.username,
-        password=m.password,
+        password=m.password.get_secret_value() if m.password else None,
         identifier=m.client_id,
         will=aiomqtt.Will(bridge_topic, "offline", qos=1, retain=True),
     )

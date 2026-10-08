@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 DEFAULT_FILE = "/config/config.yaml"
 MQTT_ENV = {
@@ -25,7 +25,7 @@ class MqttConfig(_Strict):
     host: str = "localhost"
     port: int = 1883
     username: str | None = None
-    password: str | None = None
+    password: SecretStr | None = None
     client_id: str = "daren2mqtt"
     base_topic: str = "daren2mqtt"
     discovery_prefix: str = "homeassistant"
@@ -65,6 +65,23 @@ class ConfigError(Exception):
     pass
 
 
+def _validation_message(exc: ValidationError) -> str:
+    """One line per error, without the offending input: it may be a password."""
+    lines = []
+    for err in exc.errors(include_input=False, include_url=False):
+        where = ".".join(str(part) for part in err["loc"]) or "config"
+        hint = " (put the value in quotes)" if err["type"] == "string_type" else ""
+        lines.append(f"{where}: {err['msg']}{hint}")
+    return "\n  ".join(lines)
+
+
+def _yaml_message(exc: yaml.YAMLError) -> str:
+    """Position and reason only; PyYAML would otherwise quote the line, secrets included."""
+    mark = getattr(exc, "problem_mark", None)
+    where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+    return f"invalid YAML{where}: {getattr(exc, 'problem', None) or 'syntax error'}"
+
+
 def load(env: Mapping[str, str] = os.environ) -> Config:
     if inline := env.get("DAREN2MQTT_CONFIG"):
         source, text = "DAREN2MQTT_CONFIG", inline
@@ -76,15 +93,14 @@ def load(env: Mapping[str, str] = os.environ) -> Config:
     try:
         data = yaml.safe_load(text) or {}
     except yaml.YAMLError as exc:
-        raise ConfigError(f"{source}: {exc}") from exc
+        raise ConfigError(f"{source}: {_yaml_message(exc)}") from None
     if not isinstance(data, dict):
         raise ConfigError(f"{source}: expected a mapping at the top level")
-    mqtt = data.setdefault("mqtt", {}) or {}
-    for var, key in MQTT_ENV.items():
-        if env.get(var):
-            mqtt[key] = env[var]
+    mqtt = data.get("mqtt") or {}
+    if isinstance(mqtt, dict):
+        mqtt |= {key: env[var] for var, key in MQTT_ENV.items() if env.get(var)}
     data["mqtt"] = mqtt
     try:
         return Config.model_validate(data)
-    except ValueError as exc:
-        raise ConfigError(f"{source}: {exc}") from exc
+    except ValidationError as exc:
+        raise ConfigError(f"{source}:\n  {_validation_message(exc)}") from None
