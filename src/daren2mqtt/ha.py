@@ -45,7 +45,7 @@ def state(a: Analog) -> dict:
         "alarms": _text(problems[Kind.ALARM], "OK"),
         "protections": _text(problems[Kind.PROTECTION], "OK"),
         "faults": _text(problems[Kind.FAULT], "OK"),
-        "problem": any(problems.values()),
+        "problem": bool(problems[Kind.PROTECTION] or problems[Kind.FAULT]),  # alarms are only warnings
     }
 
 

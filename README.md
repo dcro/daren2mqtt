@@ -110,7 +110,8 @@ Each pack's state contains:
 - ambient, pack and MOS temperatures, plus every temperature sensor;
 - charge and discharge MOSFET state;
 - balancing and the cells being balanced;
-- active alarms, protections and faults ("OK" when none) and a problem flag.
+- active alarms, protections and faults ("OK" when none), and a problem flag that turns on
+  for protections and faults (alarms are only warnings).
 
 ## Development
 

@@ -29,6 +29,11 @@ def test_state_values():
     assert (s["alarms"], s["protections"], s["faults"], s["problem"]) == ("OK", "OK", "OK", False)
 
 
+def test_alarms_alone_are_not_a_problem():
+    s = ha.state(decode_analog(analog_info(status={"voltage": 1 << 4})))
+    assert s["alarms"] == "cell high voltage" and s["problem"] is False
+
+
 def test_state_problems():
     s = ha.state(decode_analog(analog_info(status={"voltage": 1 << 0})))
     assert s["protections"] == "cell overvoltage" and s["problem"] is True
