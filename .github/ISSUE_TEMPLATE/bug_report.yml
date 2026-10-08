@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please remove serial numbers, passwords and anything else
+        you would not post publicly from the output below.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: daren2mqtt version
+      description: Output of `daren2mqtt --version`, or the image tag.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: |
+        BMS board (as printed on it), number of cells and packs, gateway model and its
+        serial settings (baud rate, TCP mode), and which pack addresses you query.
+    validations:
+      required: true
+  - type: textarea
+    id: read
+    attributes:
+      label: Output of daren2mqtt read
+      description: "`docker run --rm ghcr.io/dcro/daren2mqtt read HOST[:PORT]/ADDRESS`"
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Container logs, ideally with `log_level: DEBUG`."
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your configuration without the MQTT password.
+      render: yaml
