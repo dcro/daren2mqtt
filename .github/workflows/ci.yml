@@ -23,7 +23,15 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -q
+      # eclipse-mosquitto 2.1.2
+      - name: Start a throwaway MQTT broker for the integration test
+        run: >-
+          docker run -d --name mosquitto -p 1883:1883
+          -v "$PWD/tests/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"
+          eclipse-mosquitto:2@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+      - run: uv run pytest -q -rs
+        env:
+          DAREN2MQTT_TEST_BROKER: localhost:1883
 
   image:
     needs: test

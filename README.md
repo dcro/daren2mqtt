@@ -163,6 +163,7 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 ```bash
 uv sync
 uv run pytest
+DAREN2MQTT_TEST_BROKER=localhost:1883 uv run pytest  # also end to end, with a throwaway broker
 uv run ruff check . && uv run ruff format --check .
 uv run daren2mqtt read 192.168.1.50/0
 ```
