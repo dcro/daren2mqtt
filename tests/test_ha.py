@@ -8,9 +8,9 @@ from daren2mqtt.decode import Counters, Device, decode_analog
 PACK = PackConfig(id="battery1", name="Battery 1", host="192.0.2.10")
 
 
-def test_state_uses_inverter_sign_convention():
+def test_state_uses_the_bms_sign_by_default():
     s = ha.state(decode_analog(analog_info(current=-10.0, voltage=52.0)))
-    assert s["current"] == pytest.approx(10.0) and s["power"] == pytest.approx(520.0)
+    assert s["current"] == pytest.approx(-10.0) and s["power"] == pytest.approx(-520.0)
     assert s["state"] == "discharging"
 
 
@@ -107,3 +107,9 @@ def test_counters_in_state_and_discovery():
     )
     assert cmps["design_capacity"]["entity_category"] == "diagnostic"
     assert "charged_energy" not in ha.discovery(MqttConfig(), PACK, 16, 4)["cmps"]
+
+
+def test_positive_current_while_discharging():
+    a = decode_analog(analog_info(current=-10.0, voltage=52.0))
+    s = ha.state(a, positive_current="discharging")
+    assert s["current"] == pytest.approx(10.0) and s["power"] == pytest.approx(520.0)

@@ -52,6 +52,7 @@ def test_missing_config(tmp_path):
         "packs:\n  - {id: 'a b', host: h}",
         "packs:\n  - {id: a, host: h, adress: 1}",
         "interval: 1\npacks:\n  - {id: a, host: h}",
+        "positive_current: in\npacks:\n  - {id: a, host: h}",
         "- not a mapping",
         "packs: [",
         "mqtt: {base_topic: 'bms/#'}\npacks:\n  - {id: a, host: h}",
@@ -87,3 +88,9 @@ def test_numeric_password_hint():
 
 def test_nested_base_topic():
     assert load({"DAREN2MQTT_CONFIG": "mqtt: {base_topic: home/bms}\n" + PACKS}).mqtt.base_topic == "home/bms"
+
+
+def test_positive_current():
+    assert load({"DAREN2MQTT_CONFIG": PACKS}).positive_current == "charging"
+    config = load({"DAREN2MQTT_CONFIG": "positive_current: discharging\n" + PACKS})
+    assert config.positive_current == "discharging"

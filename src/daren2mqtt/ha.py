@@ -1,6 +1,7 @@
 """MQTT payloads: the JSON state of a pack and its Home Assistant device discovery.
 
-Current and power follow the inverter convention: positive while discharging.
+Current and power are positive while charging, as the BMS reports them, unless
+``positive_current="discharging"``.
 """
 
 from daren2mqtt import __version__
@@ -14,15 +15,16 @@ def _text(items: list[str], empty: str) -> str:
     return ", ".join(items)[:MAX_TEXT] or empty
 
 
-def state(a: Analog, counters: Counters | None = None) -> dict:
+def state(a: Analog, counters: Counters | None = None, positive_current: str = "charging") -> dict:
     low, low_index = a.cell_min
     high, high_index = a.cell_max
     problems = {kind: a.flags(kind) for kind in Kind}
+    sign = -1 if positive_current == "discharging" else 1  # the BMS reports charging as positive
     out = {
         "soc": a.soc,
         "voltage": a.voltage,
-        "current": round(-a.current, 2) + 0.0,  # + 0.0 turns -0.0 into 0.0
-        "power": round(-a.power, 1) + 0.0,
+        "current": round(sign * a.current, 2) + 0.0,  # + 0.0 turns -0.0 into 0.0
+        "power": round(sign * a.power, 1) + 0.0,
         "state": a.state,
         "soh": a.soh,
         "remaining_capacity": a.remaining_ah,

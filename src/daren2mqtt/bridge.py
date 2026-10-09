@@ -118,7 +118,8 @@ class Bridge:
             await self._discover(pack)
         if pack.online is not True:
             await self._set_online(pack, True)
-        await self._send(pack.topics["state"], ha.state(analog, pack.counters))
+        payload = ha.state(analog, pack.counters, self.config.positive_current)
+        await self._send(pack.topics["state"], payload)
 
     async def _read_device(self, pack: Pack) -> None:
         pack.device_tries += 1

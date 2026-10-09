@@ -8,9 +8,9 @@ from daren2mqtt.bridge import OFFLINE_AFTER, TRIES, Bridge
 from daren2mqtt.config import Config
 
 
-def make_bridge(port: int) -> tuple[Bridge, list]:
+def make_bridge(port: int, **options) -> tuple[Bridge, list]:
     config = Config.model_validate(
-        {"timeout": 0.2, "packs": [{"id": "a", "host": "127.0.0.1", "port": port, "address": 1}]}
+        {"timeout": 0.2, "packs": [{"id": "a", "host": "127.0.0.1", "port": port, "address": 1}]} | options
     )
     bridge = Bridge(config)
     sent: list[tuple[str, str, bool]] = []
@@ -193,3 +193,15 @@ def test_counters_are_optional():
     discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
     assert "charged_energy" not in discovery["cmps"]
     assert all("charged_energy" not in json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a")
+
+
+def test_positive_current_from_config():
+    async def go():
+        async with FakeGateway({1: {0x42: analog_reply(1, current=5.0)}}) as gw:
+            bridge, sent = make_bridge(gw.port, positive_current="discharging")
+            await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return sent
+
+    state = next(json.loads(p) for t, p, _ in asyncio.run(go()) if t == "daren2mqtt/a")
+    assert state["current"] == -5.0

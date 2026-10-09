@@ -3,7 +3,7 @@
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
@@ -49,6 +49,7 @@ class Config(_Strict):
     interval: Annotated[float, Field(ge=5)] = 30
     timeout: Annotated[float, Field(gt=0, le=10)] = 2
     log_level: str = "INFO"
+    positive_current: Literal["charging", "discharging"] = "charging"
     mqtt: MqttConfig = MqttConfig()
     packs: Annotated[list[PackConfig], Field(min_length=1)]
 

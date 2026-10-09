@@ -75,6 +75,7 @@ Put the configuration inline in `DAREN2MQTT_CONFIG`, or mount a file at
 interval: 30          # seconds between reads, minimum 5
 timeout: 2            # seconds to wait for a reply
 log_level: INFO
+positive_current: charging  # or discharging: the sign of current and power
 mqtt:
   host: localhost
   port: 1883
@@ -104,7 +105,8 @@ packs:
 
 Discovery is published again when Home Assistant comes online (`homeassistant/status`).
 
-Current and power are **positive while discharging**, as most inverters report them.
+Current and power are **positive while charging**, as the BMS reports them. Set
+`positive_current: discharging` to invert them.
 
 Each pack's state contains:
 
