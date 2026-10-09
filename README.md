@@ -1,10 +1,12 @@
 # daren2mqtt
 
-Daren BMS (RS485, YD/T 1363) to MQTT with Home Assistant discovery.
+Daren BMS (DR-JC03, DR-JC26, DR48100JC) LiFePO4 batteries to MQTT and Home Assistant, over
+RS485.
 
-daren2mqtt polls LiFePO4 battery packs with a Daren BMS through an RS485-to-Ethernet
-gateway and publishes their state to MQTT. Home Assistant picks every pack up as a device,
-much like zigbee2mqtt devices.
+daren2mqtt brings Daren BMS LiFePO4 batteries (DR-JC03, DR-JC26 and other DR48100JC boards,
+used by Docan and others) into Home Assistant over MQTT. It polls each pack through an
+RS485-to-Ethernet gateway or a USB adapter, and Home Assistant picks every pack up as a
+device, much like zigbee2mqtt devices.
 
 - Read-only: it only sends read commands: analog values and status (42H), the lifetime
   counters (B0H), the protection counts (83H) and, once per pack, device information (51H) and
@@ -61,15 +63,27 @@ connection: &bms
   connector: serialdev,/dev/ttyUSB0,9600n81,local
 ```
 
-## Compatible batteries
+## Supported batteries and Daren BMS boards
 
 Daren (often misspelled Darren) BMS boards are fitted to many 16S 48 V / 51.2 V LiFePO4
-rack and wall batteries from China, from 60 to 300 Ah. The boards are marked DR-JC03,
-DR48100 or DR48100JC-03-V2; their PC software shows models such as DR01 or JC03 (some
-batteries show "DR-POWER") and calls the protocol DR-1363. The BMS version on the battery's
-screen or in the PC software is usually a project code that starts with the cell count and
-capacity, such as 16S100A, 16S100JC03 or 16S200JC26. Brands reported to use these boards
-include Docan, Ecobat, PAPOOL, BLMPOW and XD Battery.
+rack and wall batteries from China, from 60 to 320 Ah. The board is marked DR-JC03 (100 A),
+DR-JC26 (200 A), DR48100 or DR48100JC-xx (some are sold as BELY); the Windows software
+supplied with the battery shows models such as DR01, JC03 or "DR-POWER" and calls the
+protocol DR-1363, and Bluetooth and Wi-Fi models use the BMS Insight app. The BMS version on
+the battery's screen is usually a project code that starts with the cell count and capacity,
+such as 16S100A, 16S100JC03 or 16S200JC26.
+
+| Brand | Batteries and boards reported |
+| --- | --- |
+| Docan | 51.2 V 280–320 Ah wall and standing packs (NOON, ZZ, MOON series), DIY kits with the 200 A Daren BMS |
+| Ecobat | 51.2 V 16S packs, DR-JC26 (BMS version 16S200JC26) |
+| AOLithium | 51.2 V 100 Ah, DR48100JC-03-V2 |
+| BenKa | BK-48150, DR48100JC-11 |
+| BLMPOW, JOSMA, XD Battery | 48 V packs, DR-JC03 |
+| GMM | 51.2 V ESS, DR48100JC |
+| Odipie, Rayne-Enov | 48 V packs with Daren BMS |
+| PAPOOL | 48 V packs, "DR-POWER" / DR01 |
+| Taico | TK4800, DR48100JC-03-V2 |
 
 Firmware differs between boards: at least one DR-JC03 battery answers its PC software but
 not the commands other tools send. daren2mqtt has been tested on 16S packs with Waveshare
