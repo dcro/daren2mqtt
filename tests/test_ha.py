@@ -113,3 +113,17 @@ def test_positive_current_while_discharging():
     a = decode_analog(analog_info(current=-10.0, voltage=52.0))
     s = ha.state(a, positive_current="discharging")
     assert s["current"] == pytest.approx(10.0) and s["power"] == pytest.approx(520.0)
+
+
+def test_entity_categories():
+    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, counters=True)["cmps"]
+    diagnostic = {k for k, c in cmps.items() if c.get("entity_category") == "diagnostic"}
+    assert diagnostic == {
+        "design_capacity",
+        "cell_min_index",
+        "cell_max_index",
+        "balancing_cells",
+        "alarms",
+        "protections",
+        "faults",
+    }

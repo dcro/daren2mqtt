@@ -81,6 +81,8 @@ def _binary(name, device_class=None, **extra):
     return {k: v for k, v in out.items() if v is not None}
 
 
+# Diagnostic: fixed values, helper details and the detailed problem lists. Measurements and
+# states stay primary, as in the common ESPHome BMS components.
 DIAGNOSTIC = {"entity_category": "diagnostic"}
 
 
@@ -98,9 +100,7 @@ def components(cells: int, sensors: int, counters: bool = False) -> dict[str, di
         ),
         "soh": _measure("State of health", "%", precision=0, icon="mdi:battery-heart-variant"),
         "remaining_capacity": _measure("Remaining capacity", "Ah", precision=1, icon="mdi:battery-medium"),
-        "full_capacity": _measure(
-            "Full charge capacity", "Ah", precision=1, icon="mdi:battery", **DIAGNOSTIC
-        ),
+        "full_capacity": _measure("Full charge capacity", "Ah", precision=1, icon="mdi:battery"),
         "cycles": _measure("Cycle count", state_class="total_increasing", icon="mdi:battery-sync"),
         **{f"cell_{i}": _volts(f"Cell voltage {i}") for i in range(1, cells + 1)},
         "cell_min": _volts("Cell voltage min"),
@@ -115,10 +115,11 @@ def components(cells: int, sensors: int, counters: bool = False) -> dict[str, di
         "charge_mos": _binary("Charge MOSFET", "power"),
         "discharge_mos": _binary("Discharge MOSFET", "power"),
         "balancing": _binary("Balancing", icon="mdi:scale-balance"),
-        "balancing_cells": _text_sensor("Balancing cells", icon="mdi:scale-balance"),
-        "alarms": _text_sensor("Alarms", icon="mdi:alert"),
-        "protections": _text_sensor("Protections", icon="mdi:shield-alert"),
-        "faults": _text_sensor("Faults", icon="mdi:alert-octagon"),
+        "balancing_cells": _text_sensor("Balancing cells", icon="mdi:scale-balance", **DIAGNOSTIC),
+        # The details go to diagnostics; "problem" sums up protections and faults.
+        "alarms": _text_sensor("Alarms", icon="mdi:alert", **DIAGNOSTIC),
+        "protections": _text_sensor("Protections", icon="mdi:shield-alert", **DIAGNOSTIC),
+        "faults": _text_sensor("Faults", icon="mdi:alert-octagon", **DIAGNOSTIC),
         "problem": _binary("Problem", "problem"),
     }
     if counters:
