@@ -58,6 +58,8 @@ def test_missing_config(tmp_path):
         "packs:\n  - {id: a, serial: /dev/ttyUSB0}\n  - {id: b, serial: /dev/ttyUSB0}",
         "packs:\n  - {id: a, serial: /dev/ttyS0}\n  - {id: b, serial: /dev/ttyS0, address: 1, baud: 2400}",
         "packs:\n  - {id: a, serial: /dev/ttyUSB0, baud: 300}",
+        "packs:\n  - {id: a, host: h, baud: 19200}",
+        "packs:\n  - {id: a, serial: /dev/ttyUSB0, port: 4196}",
         "- not a mapping",
         "packs: [",
         "mqtt: {base_topic: 'bms/#'}\npacks:\n  - {id: a, host: h}",

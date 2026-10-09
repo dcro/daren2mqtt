@@ -95,3 +95,10 @@ def test_health_without_a_running_bridge(monkeypatch, tmp_path):
     assert main(["health"]) == 1
     (tmp_path / "health").touch()
     assert main(["health"]) == 0
+
+
+@pytest.mark.parametrize("baud", ["300", "fast", "1000000"])
+def test_read_rejects_bad_baud_rates(baud, capsys):
+    with pytest.raises(SystemExit):
+        main(["read", "/dev/ttyUSB0/0", "--baud", baud])
+    assert "baud rate must be" in capsys.readouterr().err

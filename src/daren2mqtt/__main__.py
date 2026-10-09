@@ -9,7 +9,7 @@ import signal
 import sys
 
 from daren2mqtt import __version__, config, ha
-from daren2mqtt.bridge import OPTIONAL, healthy, run
+from daren2mqtt.bridge import EXTRA_READINGS, healthy, run
 from daren2mqtt.decode import decode_analog
 from daren2mqtt.link import SerialLink, TcpLink
 from daren2mqtt.protocol import ProtocolError, analog_request
@@ -38,12 +38,22 @@ def parse_target(text: str) -> tuple[str, int | None, int]:
     return target
 
 
+def baud_rate(text: str) -> int:
+    try:
+        baud = int(text)
+    except ValueError:
+        baud = 0
+    if not 1200 <= baud <= 115200:
+        raise argparse.ArgumentTypeError(f"baud rate must be 1200..115200, got {text!r}")
+    return baud
+
+
 async def _read(where: str, port: int | None, address: int, reply_timeout: float, baud: int) -> dict:
     link = SerialLink(where, baud, reply_timeout) if port is None else TcpLink(where, port, reply_timeout)
     result: dict = {}
     try:
         analog = decode_analog((await link.request(analog_request(address), address)).info)
-        for spec in OPTIONAL:
+        for spec in EXTRA_READINGS:
             try:
                 value = spec.decode((await link.request(spec.request(address), address)).info)
             except (TimeoutError, OSError, EOFError, ProtocolError):
@@ -68,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("run", help="run the bridge (default)")
     read = sub.add_parser("read", help="read one pack once and print everything it reports as JSON")
     read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS or /dev/PORT/ADDRESS")
-    read.add_argument("--baud", type=int, default=9600, help="serial port baud rate (default 9600)")
+    read.add_argument("--baud", type=baud_rate, default=9600, help="serial port baud rate (default 9600)")
     read.add_argument("--timeout", type=float, default=2.0, help="reply timeout in seconds (default 2)")
     sub.add_parser("health", help="exit 0 while a running bridge is connected to MQTT")
     args = parser.parse_args(argv)

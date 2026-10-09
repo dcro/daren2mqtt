@@ -248,3 +248,17 @@ def test_optional_readings_give_up(command, key):
         discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
         assert key not in discovery["cmps"]
         assert all(key not in json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a")
+
+
+def test_info_logs_only_summaries(caplog):
+    async def go():
+        async with FakeGateway({1: pack_replies(1)}) as gw:
+            bridge, _ = make_bridge(gw.port)
+            await bridge.poll(bridge.packs[0])
+            await bridge.close()
+
+    with caplog.at_level("INFO", logger="daren2mqtt.bridge"):
+        asyncio.run(go())
+    info = " ".join(r.getMessage() for r in caplog.records if r.levelname == "INFO")
+    assert "model 16S100A, hardware HW1, firmware 01.02.03" in info
+    assert "ACME01" not in info and "Counters(" not in info  # product code and totals stay at DEBUG

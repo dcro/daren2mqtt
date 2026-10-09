@@ -45,7 +45,7 @@ Publish = Callable[[str, str, bool], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
-class Optional:
+class ExtraReading:
     """A reading beyond 42H that a BMS may not support."""
 
     name: str
@@ -55,12 +55,16 @@ class Optional:
     every_poll: bool  # otherwise read once, at the first poll
 
 
+def _device_summary(d: Device) -> str:
+    return f"model {d.model or '?'}, hardware {d.hardware or '?'}, firmware {d.firmware}"
+
+
 # Read in this order after each 42H; the ones read once come first.
-OPTIONAL = (
-    Optional("device", "device information", device_request, decode_device, every_poll=False),
-    Optional("thresholds", "thresholds", thresholds_request, decode_thresholds, every_poll=False),
-    Optional("counters", "energy counters", counters_request, decode_counters, every_poll=True),
-    Optional(
+EXTRA_READINGS = (
+    ExtraReading("device", "device information", device_request, decode_device, every_poll=False),
+    ExtraReading("thresholds", "thresholds", thresholds_request, decode_thresholds, every_poll=False),
+    ExtraReading("counters", "energy counters", counters_request, decode_counters, every_poll=True),
+    ExtraReading(
         "protection_counts", "protection counts", protection_counts_request, decode_protection_counts, True
     ),
 )
@@ -71,7 +75,7 @@ class Reading:
     poll, up to TRIES times. After a later failure the last value stays in the state: a missing
     key would make Home Assistant log template errors on every update."""
 
-    def __init__(self, spec: Optional):
+    def __init__(self, spec: ExtraReading):
         self.spec = spec
         self.value: object = None
         self.fails = 0
@@ -89,7 +93,7 @@ class Pack:
         self.failures = 0
         self.online: bool | None = None
         self.layout: tuple[int, int] | None = None  # cells, temperature sensors
-        self.readings = {spec.name: Reading(spec) for spec in OPTIONAL}
+        self.readings = {spec.name: Reading(spec) for spec in EXTRA_READINGS}
         self.described: tuple | None = None  # what the published discovery was built from
 
     def __str__(self) -> str:
@@ -203,7 +207,10 @@ class Bridge:
                 log.warning("%s: %s not read, repeating the last values: %s", pack, what, reason)
             return
         if reading.value is None:
-            log.info("%s: %s: %s", pack, what, value)
+            # Only a summary at INFO: logs end up in public bug reports.
+            summary = _device_summary(value) if isinstance(value, Device) else "read"
+            log.info("%s: %s: %s", pack, what, summary)
+            log.debug("%s: %s", pack, value)
         elif reading.stale:
             log.info("%s: %s read again", pack, what)
         reading.value, reading.stale = value, False

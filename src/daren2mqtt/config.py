@@ -46,6 +46,10 @@ class PackConfig(_Strict):
     def _one_bus(self):
         if (self.host is None) == (self.serial is None):
             raise ValueError("set either host (a gateway) or serial (a local port)")
+        if self.host and "baud" in self.model_fields_set:
+            raise ValueError("baud applies to a serial port; set it on the gateway instead")
+        if self.serial and "port" in self.model_fields_set:
+            raise ValueError("port applies to a gateway, not to a serial port")
         return self
 
     @property
