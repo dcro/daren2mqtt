@@ -1,8 +1,9 @@
 import asyncio
 import json
 
+import pytest
 from simulator import FakeGateway
-from synthetic import analog_reply, counters_reply, device_reply, pack_replies
+from synthetic import counters_reply, device_reply, pack_replies
 
 from daren2mqtt.bridge import OFFLINE_AFTER, TRIES, Bridge
 from daren2mqtt.config import Config
@@ -117,11 +118,12 @@ def test_device_information_in_discovery():
     sent, requests = asyncio.run(go())
     discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
     assert len(discoveries) == 1 and discoveries[0]["dev"]["model"] == "16S100A"
-    assert [r[7:9] for r in requests if r[7:9] != b"B0"] == [b"42", b"51", b"42"]  # read once
+    assert [r[7:9] for r in requests if r[7:9] in (b"42", b"51")] == [b"42", b"51", b"42"]  # once
 
 
 def test_device_information_is_optional():
-    replies: dict = {1: {0x42: analog_reply(1), 0xB0: counters_reply(1)}}
+    replies: dict = {1: pack_replies(1)}
+    del replies[1][0x51]
 
     async def go():
         async with FakeGateway(replies) as gw:
@@ -141,19 +143,6 @@ def test_device_information_is_optional():
     discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
     assert [d["dev"]["model"] for d in discoveries] == ["16S BMS", "16S100A"]
     assert sum(r[7:9] == b"51" for r in requests) == 2
-
-
-def test_device_information_gives_up():
-    async def go():
-        async with FakeGateway({1: {0x42: analog_reply(1)}}) as gw:
-            bridge, sent = make_bridge(gw.port)
-            for _ in range(TRIES + 2):
-                await bridge.poll(bridge.packs[0])
-            await bridge.close()
-            return gw.requests
-
-    requests = asyncio.run(go())
-    assert sum(r[7:9] == b"51" for r in requests) == TRIES
 
 
 def test_counters_on_every_poll():
@@ -177,22 +166,6 @@ def test_counters_on_every_poll():
     assert [s["charged_energy"] for s in states] == [63.2, 64.0, 64.0]
     discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
     assert discovery["cmps"]["charged_energy"]["state_class"] == "total_increasing"
-
-
-def test_counters_are_optional():
-    async def go():
-        async with FakeGateway({1: {0x42: analog_reply(1)}}) as gw:
-            bridge, sent = make_bridge(gw.port)
-            for _ in range(TRIES + 2):
-                await bridge.poll(bridge.packs[0])
-            await bridge.close()
-            return sent, gw.requests
-
-    sent, requests = asyncio.run(go())
-    assert sum(r[7:9] == b"B0" for r in requests) == TRIES
-    discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
-    assert "charged_energy" not in discovery["cmps"]
-    assert all("charged_energy" not in json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a")
 
 
 def test_positive_current_from_config():
@@ -224,6 +197,54 @@ def test_counters_failing_after_a_success_warn_once(caplog):
 
     with caplog.at_level("INFO", logger="daren2mqtt.bridge"):
         asyncio.run(go())
-    messages = [r.getMessage() for r in caplog.records if "counters" in r.getMessage()]
+    messages = [
+        r.getMessage() for r in caplog.records if "repeating" in r.getMessage() or "again" in r.getMessage()
+    ]
     assert len(messages) == 2
     assert "repeating the last values" in messages[0] and "read again" in messages[1]
+
+
+def test_thresholds_once_protection_counts_every_poll():
+    async def go():
+        async with FakeGateway({1: pack_replies(1)}) as gw:
+            bridge, sent = make_bridge(gw.port)
+            for _ in range(3):
+                await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return sent, gw.requests
+
+    sent, requests = asyncio.run(go())
+    commands = [r[7:9] for r in requests]
+    assert commands.count(b"80") == 1 and commands.count(b"83") == 3
+    state = json.loads(next(p for t, p, _ in sent if t == "daren2mqtt/a"))
+    assert state["overcharge_protections"] == 7 and state["cell_overvoltage_protection"] == 3.65
+
+
+@pytest.mark.parametrize(
+    ("command", "key"),
+    [
+        (0x51, None),
+        (0x80, "cell_overvoltage_protection"),
+        (0xB0, "charged_energy"),
+        (0x83, "overcharge_protections"),
+    ],
+    ids=["device", "thresholds", "counters", "protection_counts"],
+)
+def test_optional_readings_give_up(command, key):
+    replies = pack_replies(1)
+    del replies[command]
+
+    async def go():
+        async with FakeGateway({1: replies}) as gw:
+            bridge, sent = make_bridge(gw.port)
+            for _ in range(TRIES + 2):
+                await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return sent, gw.requests
+
+    sent, requests = asyncio.run(go())
+    assert sum(r[7:9] == f"{command:02X}".encode() for r in requests) == TRIES
+    if key is not None:  # nothing of it in the discovery or in any state
+        discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
+        assert key not in discovery["cmps"]
+        assert all(key not in json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a")

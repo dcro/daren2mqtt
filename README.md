@@ -7,7 +7,8 @@ gateway and publishes their state to MQTT. Home Assistant picks every pack up as
 much like zigbee2mqtt devices.
 
 - Read-only: it only sends read commands: analog values and status (42H), the lifetime
-  counters (B0H) and, once per pack, device information (51H). It never writes to the BMS.
+  counters (B0H), the protection counts (83H) and, once per pack, device information (51H) and
+  thresholds (80H). It never writes to the BMS.
 - One container, configured from `docker compose`.
 - Images for `linux/amd64` and `linux/arm64` on GHCR.
 
@@ -132,7 +133,11 @@ Each pack's state contains:
 - balancing and the cells being balanced;
 - active alarms, protections and faults ("OK" when none), and a problem flag that turns on
   for protections and faults (alarms are only warnings);
-- lifetime charged and discharged energy, and the design capacity.
+- lifetime charged and discharged energy, and the design capacity;
+- how often the overcharge, over-discharge, overcurrent, temperature and short circuit
+  protections have tripped;
+- the cell protection and alarm thresholds and the balancing settings (read at start, so
+  restart daren2mqtt after changing them).
 
 The energy counters are per pack. If your inverter already reports the battery energy, keep
 using it in the Energy dashboard: adding these too would count the same energy twice, and

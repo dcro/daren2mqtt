@@ -3,7 +3,7 @@ from synthetic import analog_info
 
 from daren2mqtt import ha
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import Counters, Device, decode_analog
+from daren2mqtt.decode import Counters, Device, ProtectionCounts, Thresholds, decode_analog
 
 PACK = PackConfig(id="battery1", name="Battery 1", host="192.0.2.10")
 
@@ -97,10 +97,10 @@ def test_discovery_device_information():
 
 def test_counters_in_state_and_discovery():
     counters = Counters(design_ah=280.0, charged_ah=10, discharged_ah=9, charged_kwh=0.5, discharged_kwh=0.4)
-    s = ha.state(decode_analog(analog_info()), counters)
+    s = ha.state(decode_analog(analog_info()), {"counters": counters})
     assert (s["charged_energy"], s["discharged_energy"], s["design_capacity"]) == (0.5, 0.4, 280.0)
     assert "charged_energy" not in ha.state(decode_analog(analog_info()))
-    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, counters=True)["cmps"]
+    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, extras=["counters"])["cmps"]
     assert (
         cmps["charged_energy"]["device_class"] == "energy"
         and cmps["charged_energy"]["unit_of_measurement"] == "kWh"
@@ -116,7 +116,7 @@ def test_positive_current_while_discharging():
 
 
 def test_entity_categories():
-    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, counters=True)["cmps"]
+    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, extras=list(ha.EXTRAS))["cmps"]
     diagnostic = {k for k, c in cmps.items() if c.get("entity_category") == "diagnostic"}
     assert diagnostic == {
         "design_capacity",
@@ -126,4 +126,21 @@ def test_entity_categories():
         "alarms",
         "protections",
         "faults",
+        *ha.EXTRAS["protection_counts"][1],
+        *ha.EXTRAS["thresholds"][1],
     }
+
+
+def test_protection_counts_and_thresholds_in_state():
+    extras = {
+        "protection_counts": ProtectionCounts(41, 3, 1, 0, 2),
+        "thresholds": Thresholds(3650, 2600, 3600, 2800, 3400, 20),
+    }
+    s = ha.state(decode_analog(analog_info()), extras)
+    assert s["overcharge_protections"] == 41 and s["short_circuit_protections"] == 2
+    assert s["cell_overvoltage_protection"] == 3.65 and s["cell_low_voltage_alarm"] == 2.8
+    assert s["balancing_start_voltage"] == 3.4 and s["balancing_delta"] == 20
+    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, extras=list(extras))["cmps"]
+    assert set(ha.EXTRAS["thresholds"][1]) <= set(cmps)
+    assert cmps["overcharge_protections"]["state_class"] == "total_increasing"
+    assert "state_class" not in cmps["cell_overvoltage_protection"]  # a setting, not a measurement

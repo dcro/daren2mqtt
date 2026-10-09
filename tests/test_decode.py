@@ -1,7 +1,26 @@
 import pytest
-from synthetic import DEFAULT_CELLS, analog_info, analog_reply, counters_info, device_info
+from synthetic import (
+    DEFAULT_CELLS,
+    analog_info,
+    analog_reply,
+    counters_info,
+    device_info,
+    protection_counts_info,
+    thresholds_info,
+)
 
-from daren2mqtt.decode import Counters, Device, Kind, decode_analog, decode_counters, decode_device
+from daren2mqtt.decode import (
+    Counters,
+    Device,
+    Kind,
+    ProtectionCounts,
+    Thresholds,
+    decode_analog,
+    decode_counters,
+    decode_device,
+    decode_protection_counts,
+    decode_thresholds,
+)
 from daren2mqtt.protocol import ProtocolError, decode
 
 
@@ -102,3 +121,25 @@ def test_counters():
 def test_counters_reject_other_replies(info):
     with pytest.raises(ProtocolError):
         decode_counters(info)
+
+
+def test_protection_counts():
+    assert decode_protection_counts(protection_counts_info((5, 4, 3, 2, 1))) == ProtectionCounts(
+        5, 4, 3, 2, 1
+    )
+    with pytest.raises(ProtocolError):
+        decode_protection_counts(b"\x84" + protection_counts_info()[1:])
+    with pytest.raises(ProtocolError):
+        decode_protection_counts(protection_counts_info()[:11])
+
+
+def test_thresholds():
+    assert decode_thresholds(thresholds_info()) == Thresholds(3650, 2600, 3600, 2800, 3400, 20)
+
+
+@pytest.mark.parametrize(
+    "info", [thresholds_info()[:203], thresholds_info(cell_ovp=0), thresholds_info(cell_low=9000)]
+)
+def test_thresholds_reject_other_layouts(info):
+    with pytest.raises(ProtocolError):
+        decode_thresholds(info)

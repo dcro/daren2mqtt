@@ -7,25 +7,79 @@ import logging
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import aiomqtt
 
 from daren2mqtt import ha
 from daren2mqtt.config import Config, PackConfig
-from daren2mqtt.decode import Analog, Counters, Device, decode_analog, decode_counters, decode_device
+from daren2mqtt.decode import (
+    Analog,
+    Device,
+    decode_analog,
+    decode_counters,
+    decode_device,
+    decode_protection_counts,
+    decode_thresholds,
+)
 from daren2mqtt.link import Link
-from daren2mqtt.protocol import ProtocolError, analog_request, counters_request, device_request
+from daren2mqtt.protocol import (
+    ProtocolError,
+    analog_request,
+    counters_request,
+    device_request,
+    protection_counts_request,
+    thresholds_request,
+)
 
 log = logging.getLogger(__name__)
 
 OFFLINE_AFTER = 3  # consecutive failed reads before a pack is reported unavailable
-TRIES = 3  # attempts at an optional reading (device information, counters) before doing without it
+TRIES = 3  # attempts at an optional reading before doing without it
 MQTT_RETRY = 10  # seconds
 HEARTBEAT = 15  # seconds between touches of the health file while connected to MQTT
 HEALTH_FILE = Path(tempfile.gettempdir()) / "daren2mqtt.health"
 
 Publish = Callable[[str, str, bool], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class Optional:
+    """A reading beyond 42H that a BMS may not support."""
+
+    name: str
+    description: str
+    request: Callable[[int], bytes]
+    decode: Callable[[bytes], object]
+    every_poll: bool  # otherwise read once, at the first poll
+
+
+# Read in this order after each 42H; the ones read once come first.
+OPTIONAL = (
+    Optional("device", "device information", device_request, decode_device, every_poll=False),
+    Optional("thresholds", "thresholds", thresholds_request, decode_thresholds, every_poll=False),
+    Optional("counters", "energy counters", counters_request, decode_counters, every_poll=True),
+    Optional(
+        "protection_counts", "protection counts", protection_counts_request, decode_protection_counts, True
+    ),
+)
+
+
+class Reading:
+    """State of one optional reading for one pack. Until it first succeeds it is tried on every
+    poll, up to TRIES times. After a later failure the last value stays in the state: a missing
+    key would make Home Assistant log template errors on every update."""
+
+    def __init__(self, spec: Optional):
+        self.spec = spec
+        self.value: object = None
+        self.fails = 0
+        self.stale = False
+
+    @property
+    def due(self) -> bool:
+        return self.fails < TRIES if self.value is None else self.spec.every_poll
 
 
 class Pack:
@@ -35,27 +89,30 @@ class Pack:
         self.failures = 0
         self.online: bool | None = None
         self.layout: tuple[int, int] | None = None  # cells, temperature sensors
-        self.device: Device | None = None
-        self.device_tries = 0
-        self.counters: Counters | None = None
-        self.counters_fails = 0
-        self.counters_stale = False  # read before, failing now: the state repeats the last values
+        self.readings = {spec.name: Reading(spec) for spec in OPTIONAL}
         self.described: tuple | None = None  # what the published discovery was built from
 
     def __str__(self) -> str:
         return f"{self.cfg.id} ({self.link}/{self.cfg.address})"
 
+    async def request(self, build: Callable[[int], bytes]) -> bytes:
+        frame = await self.link.request(build(self.cfg.address), self.cfg.address)
+        return frame.info
+
     async def read(self) -> Analog:
-        frame = await self.link.request(analog_request(self.cfg.address), self.cfg.address)
-        return decode_analog(frame.info)
+        return decode_analog(await self.request(analog_request))
 
-    async def read_device(self) -> Device:
-        frame = await self.link.request(device_request(self.cfg.address), self.cfg.address)
-        return decode_device(frame.info)
+    @property
+    def device(self) -> Device | None:
+        return self.readings["device"].value  # type: ignore[return-value]
 
-    async def read_counters(self) -> Counters:
-        frame = await self.link.request(counters_request(self.cfg.address), self.cfg.address)
-        return decode_counters(frame.info)
+    @property
+    def extras(self) -> dict[str, object]:
+        """Optional readings that end up in the state, by name."""
+        return {n: r.value for n, r in self.readings.items() if n != "device" and r.value is not None}
+
+    def description(self) -> tuple:
+        return (self.layout, self.device, tuple(self.extras))
 
 
 class Bridge:
@@ -80,10 +137,8 @@ class Bridge:
 
     async def _discover(self, pack: Pack) -> None:
         assert pack.layout is not None
-        pack.described = (pack.layout, pack.device, pack.counters is not None)
-        payload = ha.discovery(
-            self.config.mqtt, pack.cfg, *pack.layout, pack.device, pack.counters is not None
-        )
+        pack.described = pack.description()
+        payload = ha.discovery(self.config.mqtt, pack.cfg, *pack.layout, pack.device, pack.extras)
         await self._send(pack.topics["discovery"], payload, retain=True)
 
     async def announce(self) -> None:
@@ -111,60 +166,42 @@ class Bridge:
         if layout != pack.layout:
             log.info("%s: %d cells, %d temperature sensors", pack, *layout)
             pack.layout = layout
-        if pack.device is None and pack.device_tries < TRIES:
-            await self._read_device(pack)
-        if pack.counters is not None or pack.counters_fails < TRIES:
-            await self._read_counters(pack)
-        if (pack.layout, pack.device, pack.counters is not None) != pack.described:
+        for reading in pack.readings.values():
+            if reading.due:
+                await self._read_optional(pack, reading)
+        if pack.description() != pack.described:
             await self._discover(pack)
         if pack.online is not True:
             await self._set_online(pack, True)
-        payload = ha.state(analog, pack.counters, self.config.positive_current)
+        payload = ha.state(analog, pack.extras, self.config.positive_current)
         await self._send(pack.topics["state"], payload)
 
-    async def _read_device(self, pack: Pack) -> None:
-        pack.device_tries += 1
+    async def _read_optional(self, pack: Pack, reading: Reading) -> None:
+        what = reading.spec.description
         try:
-            pack.device = await pack.read_device()
+            value = reading.spec.decode(await pack.request(reading.spec.request))
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
-            last = pack.device_tries == TRIES
-            log.log(
-                logging.WARNING if last else logging.DEBUG,
-                "%s: device information unavailable%s: %s",
-                pack,
-                ", giving up" if last else "",
-                str(exc) or "no reply",
-            )
-            return
-        d = pack.device
-        log.info(
-            "%s: model %s, hardware %s, firmware %s", pack, d.model or "?", d.hardware or "?", d.firmware
-        )
-
-    async def _read_counters(self, pack: Pack) -> None:
-        try:
-            pack.counters = await pack.read_counters()
-        except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
-            # After a failure the last values stay in the state: a missing key would make
-            # Home Assistant log template errors on every update.
-            pack.counters_fails += 1
+            reading.fails += 1
             reason = str(exc) or "no reply"
-            if pack.counters is None:
-                give_up = pack.counters_fails == TRIES
+            if reading.value is None:
+                give_up = reading.fails == TRIES
                 log.log(
                     logging.WARNING if give_up else logging.DEBUG,
-                    "%s: counters unavailable%s: %s",
+                    "%s: %s unavailable%s: %s",
                     pack,
+                    what,
                     ", giving up" if give_up else "",
                     reason,
                 )
-            elif not pack.counters_stale:
-                pack.counters_stale = True
-                log.warning("%s: counters not read, repeating the last values: %s", pack, reason)
+            elif not reading.stale:
+                reading.stale = True
+                log.warning("%s: %s not read, repeating the last values: %s", pack, what, reason)
             return
-        if pack.counters_stale:
-            pack.counters_stale = False
-            log.info("%s: counters read again", pack)
+        if reading.value is None:
+            log.info("%s: %s: %s", pack, what, value)
+        elif reading.stale:
+            log.info("%s: %s read again", pack, what)
+        reading.value, reading.stale = value, False
 
     async def poll_forever(self, pack: Pack) -> None:
         loop = asyncio.get_running_loop()

@@ -9,10 +9,10 @@ import signal
 import sys
 
 from daren2mqtt import __version__, config, ha
-from daren2mqtt.bridge import healthy, run
-from daren2mqtt.decode import decode_analog, decode_counters, decode_device
+from daren2mqtt.bridge import OPTIONAL, healthy, run
+from daren2mqtt.decode import decode_analog
 from daren2mqtt.link import Link
-from daren2mqtt.protocol import ProtocolError, analog_request, counters_request, device_request
+from daren2mqtt.protocol import ProtocolError, analog_request
 
 log = logging.getLogger("daren2mqtt")
 
@@ -34,24 +34,18 @@ def parse_target(text: str) -> tuple[str, int, int]:
 
 async def _read(host: str, port: int, address: int, reply_timeout: float) -> dict:
     link = Link(host, port, reply_timeout)
-
-    async def optional(request: bytes, decoder):
-        try:
-            return decoder((await link.request(request, address)).info)
-        except (TimeoutError, OSError, EOFError, ProtocolError):
-            return None  # the state is what matters
-
+    result: dict = {}
     try:
         analog = decode_analog((await link.request(analog_request(address), address)).info)
-        device = await optional(device_request(address), decode_device)
-        counters = await optional(counters_request(address), decode_counters)
+        for spec in OPTIONAL:
+            try:
+                value = spec.decode((await link.request(spec.request(address), address)).info)
+            except (TimeoutError, OSError, EOFError, ProtocolError):
+                value = None  # the state is what matters
+            result[spec.name] = dataclasses.asdict(value) if value is not None else None
     finally:
         await link.close()
-    return {
-        "device": dataclasses.asdict(device) if device else None,
-        "counters": dataclasses.asdict(counters) if counters else None,
-        "state": ha.state(analog),
-    }
+    return result | {"state": ha.state(analog)}
 
 
 async def _run(cfg: config.Config) -> None:
@@ -66,9 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("run", help="run the bridge (default)")
-    read = sub.add_parser(
-        "read", help="read one pack once and print its device information, counters and state as JSON"
-    )
+    read = sub.add_parser("read", help="read one pack once and print everything it reports as JSON")
     read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS")
     read.add_argument("--timeout", type=float, default=2.0, help="reply timeout in seconds (default 2)")
     sub.add_parser("health", help="exit 0 while a running bridge is connected to MQTT")

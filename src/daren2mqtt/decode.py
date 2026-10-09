@@ -269,3 +269,57 @@ def decode_counters(info: bytes) -> Counters:
         charged_kwh=field(20, 2) / 10,
         discharged_kwh=field(22, 2) / 10,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionCounts:
+    """How often each protection has tripped (83H), as kept by the BMS."""
+
+    overcharge: int
+    overdischarge: int
+    overcurrent: int
+    temperature: int
+    short_circuit: int
+
+
+def decode_protection_counts(info: bytes) -> ProtectionCounts:
+    """83H, operation, then u16 counters: overcharge, over-discharge, overcurrent, temperature,
+    short circuit, and more that are not used here."""
+    if len(info) < 12 or info[0] != 0x83:
+        raise ProtocolError(f"unexpected reply to the protection counts request: {info[:2].hex()}")
+    counts = [int.from_bytes(info[i : i + 2], "big") for i in range(2, 12, 2)]
+    return ProtectionCounts(*counts)
+
+
+@dataclass(frozen=True, slots=True)
+class Thresholds:
+    """Configured thresholds (80H), in mV."""
+
+    cell_overvoltage_protection: int
+    cell_undervoltage_protection: int
+    cell_high_voltage_alarm: int
+    cell_low_voltage_alarm: int
+    balancing_start: int
+    balancing_delta: int
+
+
+# 80H is a list of u16. Each protection and alarm is a (threshold, delay, release) triple; these
+# are the word indexes of the values used here.
+_THRESHOLD_WORDS = {
+    "cell_overvoltage_protection": 0,
+    "cell_undervoltage_protection": 3,
+    "cell_high_voltage_alarm": 48,
+    "cell_low_voltage_alarm": 51,
+    "balancing_start": 100,
+    "balancing_delta": 101,
+}
+
+
+def decode_thresholds(info: bytes) -> Thresholds:
+    if len(info) < 2 * (max(_THRESHOLD_WORDS.values()) + 1):
+        raise ProtocolError(f"80H reply truncated: {len(info)} bytes")
+    values = {k: int.from_bytes(info[2 * i : 2 * i + 2], "big") for k, i in _THRESHOLD_WORDS.items()}
+    cells = [v for k, v in values.items() if k.startswith("cell_")]
+    if not all(1500 <= mv <= 5000 for mv in cells):  # another layout would give nonsense here
+        raise ProtocolError(f"implausible cell thresholds: {cells} mV")
+    return Thresholds(**values)

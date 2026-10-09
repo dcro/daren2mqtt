@@ -4,9 +4,11 @@ Current and power are positive while charging, as the BMS reports them, unless
 ``positive_current="discharging"``.
 """
 
+from collections.abc import Collection, Mapping
+
 from daren2mqtt import __version__
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import Analog, Counters, Device, Kind
+from daren2mqtt.decode import Analog, Counters, Device, Kind, ProtectionCounts, Thresholds
 
 MAX_TEXT = 255  # Home Assistant rejects longer sensor states
 
@@ -15,7 +17,8 @@ def _text(items: list[str], empty: str) -> str:
     return ", ".join(items)[:MAX_TEXT] or empty
 
 
-def state(a: Analog, counters: Counters | None = None, positive_current: str = "charging") -> dict:
+def state(a: Analog, extras: Mapping[str, object] | None = None, positive_current: str = "charging") -> dict:
+    """``extras``: decoded optional readings by name (see EXTRAS); missing ones are left out."""
     low, low_index = a.cell_min
     high, high_index = a.cell_max
     problems = {kind: a.flags(kind) for kind in Kind}
@@ -49,12 +52,8 @@ def state(a: Analog, counters: Counters | None = None, positive_current: str = "
         "faults": _text(problems[Kind.FAULT], "OK"),
         "problem": bool(problems[Kind.PROTECTION] or problems[Kind.FAULT]),  # alarms are only warnings
     }
-    if counters is not None:
-        out |= {
-            "charged_energy": counters.charged_kwh,
-            "discharged_energy": counters.discharged_kwh,
-            "design_capacity": counters.design_ah,
-        }
+    for name, value in (extras or {}).items():
+        out |= EXTRAS[name][0](value)
     return out
 
 
@@ -86,7 +85,7 @@ def _binary(name, device_class=None, **extra):
 DIAGNOSTIC = {"entity_category": "diagnostic"}
 
 
-def components(cells: int, sensors: int, counters: bool = False) -> dict[str, dict]:
+def components(cells: int, sensors: int, extras: Collection[str] = ()) -> dict[str, dict]:
     out = {
         "soc": _measure("State of charge", "%", "battery", 0),
         "voltage": _measure("Voltage", "V", "voltage", 2),
@@ -122,10 +121,55 @@ def components(cells: int, sensors: int, counters: bool = False) -> dict[str, di
         "faults": _text_sensor("Faults", icon="mdi:alert-octagon", **DIAGNOSTIC),
         "problem": _binary("Problem", "problem"),
     }
-    if counters:
-        # Lifetime totals per pack. Inverters usually report the energy of the whole battery
-        # bank already, so these are for comparing packs rather than for the Energy dashboard.
-        out |= {
+    for name in extras:
+        out |= EXTRAS[name][1]
+    return out
+
+
+def _counters_state(c: Counters) -> dict:
+    return {
+        "charged_energy": c.charged_kwh,
+        "discharged_energy": c.discharged_kwh,
+        "design_capacity": c.design_ah,
+    }
+
+
+def _protection_counts_state(p: ProtectionCounts) -> dict:
+    return {
+        "overcharge_protections": p.overcharge,
+        "overdischarge_protections": p.overdischarge,
+        "overcurrent_protections": p.overcurrent,
+        "temperature_protections": p.temperature,
+        "short_circuit_protections": p.short_circuit,
+    }
+
+
+def _thresholds_state(t: Thresholds) -> dict:
+    return {
+        "cell_overvoltage_protection": t.cell_overvoltage_protection / 1000,
+        "cell_undervoltage_protection": t.cell_undervoltage_protection / 1000,
+        "cell_high_voltage_alarm": t.cell_high_voltage_alarm / 1000,
+        "cell_low_voltage_alarm": t.cell_low_voltage_alarm / 1000,
+        "balancing_start_voltage": t.balancing_start / 1000,
+        "balancing_delta": t.balancing_delta,
+    }
+
+
+def _count(name):
+    return _measure(name, state_class="total_increasing", icon="mdi:counter", **DIAGNOSTIC)
+
+
+def _setting(name, unit="V", precision=3):
+    return _measure(name, unit, "voltage", precision, state_class=None, **DIAGNOSTIC)
+
+
+# Optional readings: name -> (state fields, discovery components).
+EXTRAS = {
+    "counters": (
+        _counters_state,
+        {
+            # Lifetime totals per pack. Inverters usually report the energy of the whole battery
+            # bank already, so these are for comparing packs rather than for the Energy dashboard.
             "charged_energy": _measure("Charged energy", "kWh", "energy", 1, state_class="total_increasing"),
             "discharged_energy": _measure(
                 "Discharged energy", "kWh", "energy", 1, state_class="total_increasing"
@@ -133,8 +177,30 @@ def components(cells: int, sensors: int, counters: bool = False) -> dict[str, di
             "design_capacity": _measure(
                 "Design capacity", "Ah", precision=0, icon="mdi:battery-outline", **DIAGNOSTIC
             ),
-        }
-    return out
+        },
+    ),
+    "protection_counts": (
+        _protection_counts_state,
+        {
+            "overcharge_protections": _count("Overcharge protections"),
+            "overdischarge_protections": _count("Over-discharge protections"),
+            "overcurrent_protections": _count("Overcurrent protections"),
+            "temperature_protections": _count("Temperature protections"),
+            "short_circuit_protections": _count("Short circuit protections"),
+        },
+    ),
+    "thresholds": (
+        _thresholds_state,
+        {
+            "cell_overvoltage_protection": _setting("Cell overvoltage protection"),
+            "cell_undervoltage_protection": _setting("Cell undervoltage protection"),
+            "cell_high_voltage_alarm": _setting("Cell high voltage alarm"),
+            "cell_low_voltage_alarm": _setting("Cell low voltage alarm"),
+            "balancing_start_voltage": _setting("Balancing start voltage"),
+            "balancing_delta": _setting("Balancing delta", "mV", 0),
+        },
+    ),
+}
 
 
 def topics(mqtt: MqttConfig, pack: PackConfig) -> dict[str, str]:
@@ -153,12 +219,12 @@ def discovery(
     cells: int,
     sensors: int,
     device: Device | None = None,
-    counters: bool = False,
+    extras: Collection[str] = (),
 ) -> dict:
     t = topics(mqtt, pack)
     uid = f"daren2mqtt_{pack.id}"
     cmps = {}
-    for key, cfg in components(cells, sensors, counters).items():
+    for key, cfg in components(cells, sensors, extras).items():
         template = f"{{{{ value_json.{key} }}}}"
         if cfg["p"] == "binary_sensor":
             template = f"{{{{ 'ON' if value_json.{key} else 'OFF' }}}}"

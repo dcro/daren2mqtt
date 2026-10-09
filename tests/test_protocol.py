@@ -9,6 +9,8 @@ from daren2mqtt.protocol import (
     device_request,
     encode,
     length_field,
+    protection_counts_request,
+    thresholds_request,
 )
 
 
@@ -61,3 +63,9 @@ def test_device_request_bytes():
 def test_counters_request_bytes():
     assert counters_request(1) == b"~22014AB0600A010104FF00FB6B\r"
     assert counters_request(0) == b"~22004AB0600A000104FF00FB6D\r"
+
+
+def test_protection_counts_and_thresholds_requests():
+    assert protection_counts_request(1) == b"~22014A83C0040101FCC2\r"  # the documented request
+    frame = decode(thresholds_request(2))
+    assert (frame.adr, frame.cid2, frame.info) == (2, 0x80, b"\x02")

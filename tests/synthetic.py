@@ -1,4 +1,4 @@
-"""Synthetic 42H, 51H and B0H replies built from the documented layout (no captured data)."""
+"""Synthetic replies built from the documented layouts (no captured data)."""
 
 from daren2mqtt.protocol import encode
 
@@ -62,6 +62,36 @@ def counters_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
     return encode(address, rtn, counters_info(address, **kwargs))
 
 
+def protection_counts_info(counts=(7, 3, 1, 0, 2)) -> bytes:
+    return bytes([0x83, 0x01]) + b"".join(_u16(c) for c in counts) + _u16(0) * 9
+
+
+def protection_counts_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
+    return encode(address, rtn, protection_counts_info(**kwargs))
+
+
+def thresholds_info(
+    cell_ovp=3650, cell_uvp=2600, cell_high=3600, cell_low=2800, start=3400, delta=20
+) -> bytes:
+    words = [0] * 106
+    words[0:3] = [cell_ovp, 3000, cell_ovp - 200]
+    words[3:6] = [cell_uvp, 3000, cell_uvp + 300]
+    words[48:51] = [cell_high, 3000, cell_high - 100]
+    words[51:54] = [cell_low, 3000, cell_low + 200]
+    words[100:102] = [start, delta]
+    return b"".join(_u16(w) for w in words)
+
+
+def thresholds_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
+    return encode(address, rtn, thresholds_info(**kwargs))
+
+
 def pack_replies(address: int = 0, **analog) -> dict:
     """Replies of a pack that answers every command daren2mqtt sends."""
-    return {0x42: analog_reply(address, **analog), 0x51: device_reply(address), 0xB0: counters_reply(address)}
+    return {
+        0x42: analog_reply(address, **analog),
+        0x51: device_reply(address),
+        0x80: thresholds_reply(address),
+        0x83: protection_counts_reply(address),
+        0xB0: counters_reply(address),
+    }

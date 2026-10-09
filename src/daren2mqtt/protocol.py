@@ -13,6 +13,8 @@ CID1_BMS = 0x4A  # device type: LiFePO4 battery management system
 CID2_ANALOG = 0x42  # read analog values and status
 CID2_DEVICE = 0x51  # read device information (model, hardware, firmware)
 CID2_MODULE = 0xB0  # read or write a parameter module; only reads are built here
+CID2_THRESHOLDS = 0x80  # read the protection and alarm thresholds
+CID2_PROTECTION_COUNTS = 0x83  # read or clear the protection counters; only reads are built here
 
 RETURN_CODES = {
     0x00: "OK",
@@ -106,3 +108,15 @@ def counters_request(address: int) -> bytes:
     """
     _check_address(address)
     return encode(address, CID2_MODULE, bytes([address, 0x01, 0x04, 0xFF, 0x00]))
+
+
+def thresholds_request(address: int) -> bytes:
+    """Read the protection, alarm and balancing thresholds of the pack at ``address``."""
+    _check_address(address)
+    return encode(address, CID2_THRESHOLDS, bytes([address]))
+
+
+def protection_counts_request(address: int) -> bytes:
+    """Read how often each protection has tripped; INFO: command group, operation 01 (read)."""
+    _check_address(address)
+    return encode(address, CID2_PROTECTION_COUNTS, bytes([address, 0x01]))
