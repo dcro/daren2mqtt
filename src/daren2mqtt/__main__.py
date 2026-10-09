@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import logging
 import signal
@@ -9,9 +10,9 @@ import sys
 
 from daren2mqtt import __version__, config, ha
 from daren2mqtt.bridge import healthy, run
-from daren2mqtt.decode import decode_analog
+from daren2mqtt.decode import decode_analog, decode_device
 from daren2mqtt.link import Link
-from daren2mqtt.protocol import ProtocolError, analog_request
+from daren2mqtt.protocol import ProtocolError, analog_request, device_request
 
 log = logging.getLogger("daren2mqtt")
 
@@ -34,10 +35,14 @@ def parse_target(text: str) -> tuple[str, int, int]:
 async def _read(host: str, port: int, address: int, reply_timeout: float) -> dict:
     link = Link(host, port, reply_timeout)
     try:
-        frame = await link.request(analog_request(address), address)
+        state = ha.state(decode_analog((await link.request(analog_request(address), address)).info))
+        try:
+            device = decode_device((await link.request(device_request(address), address)).info)
+        except (TimeoutError, ProtocolError):
+            device = None  # optional: the state is what matters
     finally:
         await link.close()
-    return ha.state(decode_analog(frame.info))
+    return {"device": dataclasses.asdict(device) if device else None, "state": state}
 
 
 async def _run(cfg: config.Config) -> None:
@@ -52,7 +57,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("run", help="run the bridge (default)")
-    read = sub.add_parser("read", help="read one pack once and print its state as JSON")
+    read = sub.add_parser(
+        "read", help="read one pack once and print its device information and state as JSON"
+    )
     read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS")
     read.add_argument("--timeout", type=float, default=2.0, help="reply timeout in seconds (default 2)")
     sub.add_parser("health", help="exit 0 while a running bridge is connected to MQTT")
@@ -64,11 +71,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "read":
         logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
         try:
-            state = asyncio.run(_read(*args.target, args.timeout))
+            result = asyncio.run(_read(*args.target, args.timeout))
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
             print(f"error: {str(exc) or 'no reply'}", file=sys.stderr)
             return 1
-        print(json.dumps(state, indent=2))
+        print(json.dumps(result, indent=2))
         return 0
 
     try:

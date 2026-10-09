@@ -11,6 +11,7 @@ EOI = 0x0D  # '\r'
 VER = 0x22
 CID1_BMS = 0x4A  # device type: LiFePO4 battery management system
 CID2_ANALOG = 0x42  # read analog values and status
+CID2_DEVICE = 0x51  # read device information (model, hardware, firmware)
 
 RETURN_CODES = {
     0x00: "OK",
@@ -76,11 +77,21 @@ def decode(frame: bytes) -> Frame:
     return Frame(ver, adr, cid1, cid2, info)
 
 
+def _check_address(address: int) -> None:
+    if not 0 <= address <= 15:
+        raise ValueError(f"pack address must be 0..15, got {address}")
+
+
 def analog_request(address: int) -> bytes:
     """Read analog values and status of the pack at ``address`` (the DIP switch value).
 
     The command group in INFO is the pack address, as the vendor's PC tool sends it.
     """
-    if not 0 <= address <= 15:
-        raise ValueError(f"pack address must be 0..15, got {address}")
+    _check_address(address)
     return encode(address, CID2_ANALOG, bytes([address]))
+
+
+def device_request(address: int) -> bytes:
+    """Read the device information of the pack at ``address``; the request has no INFO."""
+    _check_address(address)
+    return encode(address, CID2_DEVICE)

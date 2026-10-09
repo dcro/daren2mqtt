@@ -1,7 +1,7 @@
 import pytest
-from synthetic import DEFAULT_CELLS, analog_info, analog_reply
+from synthetic import DEFAULT_CELLS, analog_info, analog_reply, device_info
 
-from daren2mqtt.decode import Kind, decode_analog
+from daren2mqtt.decode import Device, Kind, decode_analog, decode_device
 from daren2mqtt.protocol import ProtocolError, decode
 
 
@@ -65,3 +65,20 @@ def test_truncated_reply():
 def test_implausible_values(kwargs):
     with pytest.raises(ProtocolError):
         decode_analog(analog_info(**kwargs))
+
+
+def test_device_information():
+    assert decode_device(device_info(firmware=(1, 0, 12), tail=b"\x02\x15")) == Device(
+        hardware="HW1", product="ACME01", model="16S100A", firmware="01.00.12"
+    )
+
+
+def test_device_text_fields_are_cleaned():
+    info = b"AB  \xff\xff\x00\x00\x00\x00" + b"\x00" * 10 + b"16S100A   " + bytes([1, 2, 3])
+    d = decode_device(info)
+    assert (d.hardware, d.product, d.model) == ("AB", "", "16S100A")
+
+
+def test_device_reply_truncated():
+    with pytest.raises(ProtocolError, match="51H reply truncated"):
+        decode_device(device_info()[:32])

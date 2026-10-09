@@ -3,7 +3,7 @@ from synthetic import analog_info
 
 from daren2mqtt import ha
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import decode_analog
+from daren2mqtt.decode import Device, decode_analog
 
 PACK = PackConfig(id="battery1", name="Battery 1", host="192.0.2.10")
 
@@ -84,3 +84,12 @@ def test_topics():
         "bridge": "bms/bridge/state",
         "discovery": "ha/device/daren2mqtt_battery1/config",
     }
+
+
+def test_discovery_device_information():
+    device = Device(hardware="HW1", product="ACME01", model="16S100A", firmware="01.02.03")
+    dev = ha.discovery(MqttConfig(), PACK, 16, 4, device)["dev"]
+    assert (dev["model"], dev["hw_version"], dev["sw_version"]) == ("16S100A", "HW1", "01.02.03")
+    unnamed = Device(hardware="", product="", model="", firmware="01.02.03")
+    dev = ha.discovery(MqttConfig(), PACK, 16, 4, unnamed)["dev"]
+    assert dev["model"] == "16S BMS" and "hw_version" not in dev

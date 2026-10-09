@@ -1,6 +1,14 @@
 import pytest
 
-from daren2mqtt.protocol import ProtocolError, analog_request, checksum, decode, encode, length_field
+from daren2mqtt.protocol import (
+    ProtocolError,
+    analog_request,
+    checksum,
+    decode,
+    device_request,
+    encode,
+    length_field,
+)
 
 
 def test_analog_request_bytes():
@@ -40,3 +48,10 @@ def test_round_trip():
 def test_decode_rejects_bad_frames(frame):
     with pytest.raises(ProtocolError):
         decode(frame)
+
+
+def test_device_request_bytes():
+    # no INFO: LENGTH is 0000
+    assert device_request(1) == b"~22014A510000FDA0\r"
+    with pytest.raises(ValueError):
+        device_request(16)

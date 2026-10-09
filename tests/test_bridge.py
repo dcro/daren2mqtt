@@ -2,9 +2,9 @@ import asyncio
 import json
 
 from simulator import FakeGateway
-from synthetic import analog_reply
+from synthetic import analog_reply, device_reply
 
-from daren2mqtt.bridge import OFFLINE_AFTER, Bridge
+from daren2mqtt.bridge import DEVICE_TRIES, OFFLINE_AFTER, Bridge
 from daren2mqtt.config import Config
 
 
@@ -103,3 +103,54 @@ def test_packs_on_the_same_gateway_share_a_link():
     )
     links = [p.link for p in Bridge(config).packs]
     assert links[0] is links[1] and links[0] is not links[2]
+
+
+def test_device_information_in_discovery():
+    async def go():
+        async with FakeGateway({1: {0x42: analog_reply(1), 0x51: device_reply(1, model="16S100A")}}) as gw:
+            bridge, sent = make_bridge(gw.port)
+            await bridge.poll(bridge.packs[0])
+            await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return sent, gw.requests
+
+    sent, requests = asyncio.run(go())
+    discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
+    assert len(discoveries) == 1 and discoveries[0]["dev"]["model"] == "16S100A"
+    assert [r[7:9] for r in requests] == [b"42", b"51", b"42"]  # read once, not on every poll
+
+
+def test_device_information_is_optional():
+    replies: dict = {1: {0x42: analog_reply(1)}}
+
+    async def go():
+        async with FakeGateway(replies) as gw:
+            bridge, sent = make_bridge(gw.port)
+            pack = bridge.packs[0]
+            await bridge.poll(pack)
+            first = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
+            replies[1][0x51] = device_reply(1, model="16S100A")
+            await bridge.poll(pack)  # device information arrives later: discovery again
+            for _ in range(DEVICE_TRIES):
+                await bridge.poll(pack)
+            await bridge.close()
+            return first, sent, gw.requests
+
+    first, sent, requests = asyncio.run(go())
+    assert first[0]["dev"]["model"] == "16S BMS"
+    discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
+    assert [d["dev"]["model"] for d in discoveries] == ["16S BMS", "16S100A"]
+    assert sum(r[7:9] == b"51" for r in requests) == 2
+
+
+def test_device_information_gives_up():
+    async def go():
+        async with FakeGateway({1: {0x42: analog_reply(1)}}) as gw:
+            bridge, sent = make_bridge(gw.port)
+            for _ in range(DEVICE_TRIES + 2):
+                await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return gw.requests
+
+    requests = asyncio.run(go())
+    assert sum(r[7:9] == b"51" for r in requests) == DEVICE_TRIES

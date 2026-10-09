@@ -218,3 +218,24 @@ def decode_analog(info: bytes) -> Analog:
         status=status,
         balancing_mask=balancing,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Device:
+    """Device information reply (51H): three 10-byte ASCII fields, then the firmware version."""
+
+    hardware: str
+    product: str
+    model: str
+    firmware: str
+
+
+def _ascii(raw: bytes) -> str:
+    return "".join(chr(b) for b in raw if 0x20 <= b < 0x7F).strip()
+
+
+def decode_device(info: bytes) -> Device:
+    if len(info) < 33:
+        raise ProtocolError(f"51H reply truncated: {len(info)} bytes")
+    firmware = ".".join(f"{b:02d}" for b in info[30:33])
+    return Device(_ascii(info[0:10]), _ascii(info[10:20]), _ascii(info[20:30]), firmware)

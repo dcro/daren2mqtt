@@ -1,4 +1,4 @@
-"""Synthetic 42H replies built from the documented layout (no captured data)."""
+"""Synthetic 42H and 51H replies built from the documented layout (no captured data)."""
 
 from daren2mqtt.protocol import encode
 
@@ -38,3 +38,12 @@ def analog_info(
 
 def analog_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
     return encode(address, rtn, analog_info(**kwargs))
+
+
+def device_info(hardware="HW1", product="ACME01", model="16S100A", firmware=(1, 2, 3), tail=b"") -> bytes:
+    fields = b"".join(text.encode().ljust(10, b"\x00") for text in (hardware, product, model))
+    return fields + bytes(firmware) + tail
+
+
+def device_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
+    return encode(address, rtn, device_info(**kwargs))

@@ -7,8 +7,9 @@ from daren2mqtt.protocol import decode
 
 
 class FakeGateway:
-    """Answers each request with ``replies[address]`` (bytes, or a callable returning
-    bytes). ``before`` is sent ahead of every reply, as other traffic on the bus."""
+    """Answers each request with ``replies[address]``: bytes, a callable returning bytes, or a
+    dict of those keyed by command (CID2). ``before`` is sent ahead of every reply, as other
+    traffic on the bus. A request without a reply gets silence."""
 
     def __init__(self, replies: dict, before: bytes = b"", echo: bool = False, split: int = 7):
         self.replies, self.before, self.echo, self.split = replies, before, echo, split
@@ -42,7 +43,10 @@ class FakeGateway:
             while True:
                 request = await reader.readuntil(b"\r")
                 self.requests.append(request)
-                reply = self.replies.get(decode(request).adr)
+                frame = decode(request)
+                reply = self.replies.get(frame.adr)
+                if isinstance(reply, dict):
+                    reply = reply.get(frame.cid2)
                 if callable(reply):
                     reply = reply()
                 out = (request if self.echo else b"") + self.before + (reply or b"")

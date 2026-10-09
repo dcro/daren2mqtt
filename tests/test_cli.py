@@ -5,7 +5,7 @@ import threading
 
 import pytest
 from simulator import FakeGateway
-from synthetic import analog_reply
+from synthetic import analog_reply, device_reply
 
 from daren2mqtt.__main__ import main, parse_target
 
@@ -30,7 +30,7 @@ def test_read_prints_state(capsys):
 
     def serve():
         async def go():
-            async with FakeGateway({2: analog_reply(2, soc=42.0)}) as gw:
+            async with FakeGateway({2: {0x42: analog_reply(2, soc=42.0), 0x51: device_reply(2)}}) as gw:
                 port.append(gw.port)
                 ready.set()
                 await asyncio.to_thread(done.wait, 5)
@@ -45,7 +45,8 @@ def test_read_prints_state(capsys):
     finally:
         done.set()
         thread.join()
-    assert json.loads(capsys.readouterr().out)["soc"] == 42.0
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"]["soc"] == 42.0 and out["device"]["firmware"] == "01.02.03"
 
 
 def test_read_reports_errors(capsys):

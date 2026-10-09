@@ -6,8 +6,8 @@ daren2mqtt polls LiFePO4 battery packs with a Daren BMS through an RS485-to-Ethe
 gateway and publishes their state to MQTT. Home Assistant picks every pack up as a device,
 much like zigbee2mqtt devices.
 
-- Read-only: it only sends the "read analog values and status" command (42H). It never
-  writes to the BMS.
+- Read-only: it only sends read commands, "analog values and status" (42H) and, once per
+  pack, "device information" (51H). It never writes to the BMS.
 - One container, configured from `docker compose`.
 - Images for `linux/amd64` and `linux/arm64` on GHCR.
 
@@ -60,7 +60,7 @@ docker compose up -d
 
 The packs show up in Home Assistant under **Settings → Devices & services → MQTT**.
 
-To test one pack without MQTT:
+To test one pack without MQTT (prints its device information and state as JSON):
 
 ```bash
 docker run --rm ghcr.io/dcro/daren2mqtt read 192.168.1.50/0
@@ -116,6 +116,9 @@ Each pack's state contains:
 - balancing and the cells being balanced;
 - active alarms, protections and faults ("OK" when none), and a problem flag that turns on
   for protections and faults (alarms are only warnings).
+
+The device page shows the model, hardware and firmware version reported by the BMS, when it
+answers the device information request.
 
 ## Security
 

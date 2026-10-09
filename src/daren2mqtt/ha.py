@@ -5,7 +5,7 @@ Current and power follow the inverter convention: positive while discharging.
 
 from daren2mqtt import __version__
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import Analog, Kind
+from daren2mqtt.decode import Analog, Device, Kind
 
 MAX_TEXT = 255  # Home Assistant rejects longer sensor states
 
@@ -124,7 +124,9 @@ def topics(mqtt: MqttConfig, pack: PackConfig) -> dict[str, str]:
     }
 
 
-def discovery(mqtt: MqttConfig, pack: PackConfig, cells: int, sensors: int) -> dict:
+def discovery(
+    mqtt: MqttConfig, pack: PackConfig, cells: int, sensors: int, device: Device | None = None
+) -> dict:
     t = topics(mqtt, pack)
     uid = f"daren2mqtt_{pack.id}"
     cmps = {}
@@ -133,13 +135,12 @@ def discovery(mqtt: MqttConfig, pack: PackConfig, cells: int, sensors: int) -> d
         if cfg["p"] == "binary_sensor":
             template = f"{{{{ 'ON' if value_json.{key} else 'OFF' }}}}"
         cmps[key] = {**cfg, "unique_id": f"{uid}_{key}", "value_template": template}
+    dev = {"identifiers": [uid], "name": pack.display_name, "manufacturer": "Daren", "model": f"{cells}S BMS"}
+    if device is not None:
+        dev |= {"hw_version": device.hardware, "sw_version": device.firmware}
+        dev["model"] = device.model or dev["model"]
     return {
-        "dev": {
-            "identifiers": [uid],
-            "name": pack.display_name,
-            "manufacturer": "Daren",
-            "model": f"{cells}S BMS",
-        },
+        "dev": {k: v for k, v in dev.items() if v},
         "o": {
             "name": "daren2mqtt",
             "sw_version": __version__,
