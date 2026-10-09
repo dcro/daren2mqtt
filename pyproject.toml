@@ -1,6 +1,6 @@
 [project]
 name = "daren2mqtt"
-version = "0.1.0"
+version = "0.2.0"
 description = "Daren BMS (RS485, YD/T 1363) to MQTT with Home Assistant discovery"
 readme = "README.md"
 license = "MIT"

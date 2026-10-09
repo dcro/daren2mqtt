@@ -38,7 +38,7 @@ async def _read(host: str, port: int, address: int, reply_timeout: float) -> dic
     async def optional(request: bytes, decoder):
         try:
             return decoder((await link.request(request, address)).info)
-        except (TimeoutError, ProtocolError):
+        except (TimeoutError, OSError, EOFError, ProtocolError):
             return None  # the state is what matters
 
     try:

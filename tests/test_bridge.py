@@ -2,7 +2,7 @@ import asyncio
 import json
 
 from simulator import FakeGateway
-from synthetic import analog_reply, counters_reply, device_reply
+from synthetic import analog_reply, counters_reply, device_reply, pack_replies
 
 from daren2mqtt.bridge import OFFLINE_AFTER, TRIES, Bridge
 from daren2mqtt.config import Config
@@ -10,7 +10,7 @@ from daren2mqtt.config import Config
 
 def make_bridge(port: int, **options) -> tuple[Bridge, list]:
     config = Config.model_validate(
-        {"timeout": 0.2, "packs": [{"id": "a", "host": "127.0.0.1", "port": port, "address": 1}]} | options
+        {"timeout": 0.1, "packs": [{"id": "a", "host": "127.0.0.1", "port": port, "address": 1}]} | options
     )
     bridge = Bridge(config)
     sent: list[tuple[str, str, bool]] = []
@@ -31,7 +31,7 @@ def topics(sent):
 
 def test_first_read_publishes_discovery_availability_and_state():
     async def go():
-        async with FakeGateway({1: analog_reply(1, soc=64.0)}) as gw:
+        async with FakeGateway({1: pack_replies(1, soc=64.0)}) as gw:
             bridge, sent = make_bridge(gw.port)
             await bridge.poll(bridge.packs[0])
             await bridge.poll(bridge.packs[0])
@@ -58,7 +58,7 @@ def test_unavailable_after_consecutive_failures_and_back():
             for _ in range(OFFLINE_AFTER + 1):
                 await bridge.poll(pack)
             offline = list(sent)
-            replies[1] = analog_reply(1)
+            replies[1] = pack_replies(1)
             await bridge.poll(pack)
             await bridge.close()
             return offline, sent[len(offline) :]
@@ -75,7 +75,7 @@ def test_unavailable_after_consecutive_failures_and_back():
 
 def test_announce_republishes_known_packs_only():
     async def go():
-        async with FakeGateway({1: analog_reply(1)}) as gw:
+        async with FakeGateway({1: pack_replies(1)}) as gw:
             bridge, sent = make_bridge(gw.port)
             await bridge.announce()
             assert sent == []
@@ -107,7 +107,7 @@ def test_packs_on_the_same_gateway_share_a_link():
 
 def test_device_information_in_discovery():
     async def go():
-        async with FakeGateway({1: {0x42: analog_reply(1), 0x51: device_reply(1, model="16S100A")}}) as gw:
+        async with FakeGateway({1: pack_replies(1) | {0x51: device_reply(1, model="16S100A")}}) as gw:
             bridge, sent = make_bridge(gw.port)
             await bridge.poll(bridge.packs[0])
             await bridge.poll(bridge.packs[0])
@@ -121,7 +121,7 @@ def test_device_information_in_discovery():
 
 
 def test_device_information_is_optional():
-    replies: dict = {1: {0x42: analog_reply(1)}}
+    replies: dict = {1: {0x42: analog_reply(1), 0xB0: counters_reply(1)}}
 
     async def go():
         async with FakeGateway(replies) as gw:
@@ -157,7 +157,7 @@ def test_device_information_gives_up():
 
 
 def test_counters_on_every_poll():
-    replies = {1: {0x42: analog_reply(1), 0xB0: counters_reply(1, charged_kwh=63.2)}}
+    replies = {1: pack_replies(1) | {0xB0: counters_reply(1, charged_kwh=63.2)}}
 
     async def go():
         async with FakeGateway(replies) as gw:
@@ -197,7 +197,7 @@ def test_counters_are_optional():
 
 def test_positive_current_from_config():
     async def go():
-        async with FakeGateway({1: {0x42: analog_reply(1, current=5.0)}}) as gw:
+        async with FakeGateway({1: pack_replies(1, current=5.0)}) as gw:
             bridge, sent = make_bridge(gw.port, positive_current="discharging")
             await bridge.poll(bridge.packs[0])
             await bridge.close()
@@ -205,3 +205,25 @@ def test_positive_current_from_config():
 
     state = next(json.loads(p) for t, p, _ in asyncio.run(go()) if t == "daren2mqtt/a")
     assert state["current"] == -5.0
+
+
+def test_counters_failing_after_a_success_warn_once(caplog):
+    replies = pack_replies(1)
+
+    async def go():
+        async with FakeGateway({1: replies}) as gw:
+            bridge, _ = make_bridge(gw.port)
+            pack = bridge.packs[0]
+            await bridge.poll(pack)
+            counters = replies.pop(0xB0)
+            await bridge.poll(pack)
+            await bridge.poll(pack)
+            replies[0xB0] = counters
+            await bridge.poll(pack)
+            await bridge.close()
+
+    with caplog.at_level("INFO", logger="daren2mqtt.bridge"):
+        asyncio.run(go())
+    messages = [r.getMessage() for r in caplog.records if "counters" in r.getMessage()]
+    assert len(messages) == 2
+    assert "repeating the last values" in messages[0] and "read again" in messages[1]

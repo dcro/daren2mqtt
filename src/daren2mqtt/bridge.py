@@ -39,6 +39,7 @@ class Pack:
         self.device_tries = 0
         self.counters: Counters | None = None
         self.counters_fails = 0
+        self.counters_stale = False  # read before, failing now: the state repeats the last values
         self.described: tuple | None = None  # what the published discovery was built from
 
     def __str__(self) -> str:
@@ -147,14 +148,23 @@ class Bridge:
             # After a failure the last values stay in the state: a missing key would make
             # Home Assistant log template errors on every update.
             pack.counters_fails += 1
-            give_up = pack.counters is None and pack.counters_fails == TRIES
-            log.log(
-                logging.WARNING if give_up else logging.DEBUG,
-                "%s: counters unavailable%s: %s",
-                pack,
-                ", giving up" if give_up else "",
-                str(exc) or "no reply",
-            )
+            reason = str(exc) or "no reply"
+            if pack.counters is None:
+                give_up = pack.counters_fails == TRIES
+                log.log(
+                    logging.WARNING if give_up else logging.DEBUG,
+                    "%s: counters unavailable%s: %s",
+                    pack,
+                    ", giving up" if give_up else "",
+                    reason,
+                )
+            elif not pack.counters_stale:
+                pack.counters_stale = True
+                log.warning("%s: counters not read, repeating the last values: %s", pack, reason)
+            return
+        if pack.counters_stale:
+            pack.counters_stale = False
+            log.info("%s: counters read again", pack)
 
     async def poll_forever(self, pack: Pack) -> None:
         loop = asyncio.get_running_loop()

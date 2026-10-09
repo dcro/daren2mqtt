@@ -60,3 +60,8 @@ def counters_info(
 
 def counters_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
     return encode(address, rtn, counters_info(address, **kwargs))
+
+
+def pack_replies(address: int = 0, **analog) -> dict:
+    """Replies of a pack that answers every command daren2mqtt sends."""
+    return {0x42: analog_reply(address, **analog), 0x51: device_reply(address), 0xB0: counters_reply(address)}

@@ -3,13 +3,14 @@
 import asyncio
 import contextlib
 
-from daren2mqtt.protocol import decode
+from daren2mqtt.protocol import CID2_ANALOG, decode
 
 
 class FakeGateway:
-    """Answers each request with ``replies[address]``: bytes, a callable returning bytes, or a
-    dict of those keyed by command (CID2). ``before`` is sent ahead of every reply, as other
-    traffic on the bus. A request without a reply gets silence."""
+    """Answers each request with ``replies[address]``: a dict keyed by command (CID2) of bytes
+    or callables returning bytes, or just bytes / a callable for the analog request (42H).
+    ``before`` is sent ahead of every reply, as other traffic on the bus. A request without a
+    reply gets silence."""
 
     def __init__(self, replies: dict, before: bytes = b"", echo: bool = False, split: int = 7):
         self.replies, self.before, self.echo, self.split = replies, before, echo, split
@@ -45,8 +46,9 @@ class FakeGateway:
                 self.requests.append(request)
                 frame = decode(request)
                 reply = self.replies.get(frame.adr)
-                if isinstance(reply, dict):
-                    reply = reply.get(frame.cid2)
+                if not isinstance(reply, dict):
+                    reply = {CID2_ANALOG: reply}
+                reply = reply.get(frame.cid2)
                 if callable(reply):
                     reply = reply()
                 out = (request if self.echo else b"") + self.before + (reply or b"")

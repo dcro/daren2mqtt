@@ -1,13 +1,15 @@
 import argparse
 import asyncio
+import contextlib
 import json
 import threading
 
 import pytest
 from simulator import FakeGateway
-from synthetic import analog_reply, counters_reply, device_reply
+from synthetic import pack_replies
 
 from daren2mqtt.__main__ import main, parse_target
+from daren2mqtt.link import Link
 
 
 @pytest.mark.parametrize(
@@ -24,13 +26,14 @@ def test_parse_target_rejects(text):
         parse_target(text)
 
 
-def test_read_prints_state(capsys):
+@contextlib.contextmanager
+def gateway_in_thread(replies):
+    """A FakeGateway on its own event loop, so ``main()`` can call ``asyncio.run`` itself."""
     ready, done = threading.Event(), threading.Event()
     port = []
 
     def serve():
         async def go():
-            replies = {2: {0x42: analog_reply(2, soc=42.0), 0x51: device_reply(2), 0xB0: counters_reply(2)}}
             async with FakeGateway(replies) as gw:
                 port.append(gw.port)
                 ready.set()
@@ -42,13 +45,33 @@ def test_read_prints_state(capsys):
     thread.start()
     try:
         ready.wait(5)
-        assert main(["read", f"127.0.0.1:{port[0]}/2"]) == 0
+        yield port[0]
     finally:
         done.set()
         thread.join()
+
+
+def test_read_prints_state(capsys):
+    with gateway_in_thread({2: pack_replies(2, soc=42.0)}) as port:
+        assert main(["read", f"127.0.0.1:{port}/2"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["state"]["soc"] == 42.0 and out["device"]["firmware"] == "01.02.03"
     assert out["counters"]["charged_kwh"] == 63.2
+
+
+def test_read_survives_a_dropped_connection_after_the_state(monkeypatch, capsys):
+    original = Link.request
+
+    async def flaky(self, request, address):
+        if request[7:9] != b"42":
+            raise ConnectionResetError("gateway went away")
+        return await original(self, request, address)
+
+    monkeypatch.setattr(Link, "request", flaky)
+    with gateway_in_thread({2: pack_replies(2, soc=42.0)}) as port:
+        assert main(["read", f"127.0.0.1:{port}/2"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"]["soc"] == 42.0 and out["device"] is None and out["counters"] is None
 
 
 def test_read_reports_errors(capsys):
