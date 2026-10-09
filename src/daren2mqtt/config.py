@@ -36,13 +36,26 @@ class MqttConfig(_Strict):
 class PackConfig(_Strict):
     id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+$")]
     name: str | None = None
-    host: str
+    host: str | None = None  # an RS485-to-Ethernet gateway
     port: int = 4196
+    serial: str | None = None  # or a local serial port, such as /dev/ttyUSB0
+    baud: Annotated[int, Field(ge=1200, le=115200)] = 9600
     address: Annotated[int, Field(ge=0, le=15)] = 0
+
+    @model_validator(mode="after")
+    def _one_bus(self):
+        if (self.host is None) == (self.serial is None):
+            raise ValueError("set either host (a gateway) or serial (a local port)")
+        return self
 
     @property
     def display_name(self) -> str:
         return self.name or self.id
+
+    @property
+    def bus(self) -> tuple:
+        """Packs with the same bus share one connection."""
+        return ("serial", self.serial) if self.serial else ("tcp", self.host, self.port)
 
 
 class Config(_Strict):
@@ -58,9 +71,12 @@ class Config(_Strict):
         ids = [p.id for p in self.packs]
         if len(set(ids)) != len(ids):
             raise ValueError("pack ids must be unique")
-        targets = [(p.host, p.port, p.address) for p in self.packs]
+        targets = [(p.bus, p.address) for p in self.packs]
         if len(set(targets)) != len(targets):
-            raise ValueError("two packs use the same host, port and address")
+            raise ValueError("two packs use the same bus and address")
+        bauds = {p.serial: p.baud for p in self.packs if p.serial}
+        if any(p.serial and p.baud != bauds[p.serial] for p in self.packs):
+            raise ValueError("packs on the same serial port must use the same baud rate")
         return self
 
 

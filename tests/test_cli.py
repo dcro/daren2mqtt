@@ -14,13 +14,17 @@ from daren2mqtt.link import Link
 
 @pytest.mark.parametrize(
     ("text", "target"),
-    [("192.0.2.1/0", ("192.0.2.1", 4196, 0)), ("gw.lan:5000/15", ("gw.lan", 5000, 15))],
+    [
+        ("192.0.2.1/0", ("192.0.2.1", 4196, 0)),
+        ("gw.lan:5000/15", ("gw.lan", 5000, 15)),
+        ("/dev/ttyUSB0/1", ("/dev/ttyUSB0", None, 1)),
+    ],
 )
 def test_parse_target(text, target):
     assert parse_target(text) == target
 
 
-@pytest.mark.parametrize("text", ["192.0.2.1", "/1", "host/16", "host:x/1", "host/a"])
+@pytest.mark.parametrize("text", ["192.0.2.1", "/1", "host/16", "host:x/1", "host/a", "/dev/ttyUSB0/x"])
 def test_parse_target_rejects(text):
     with pytest.raises(argparse.ArgumentTypeError):
         parse_target(text)

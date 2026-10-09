@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "aiomqtt>=2.5.1",
     "pydantic>=2.14.0",
+    "pyserial-asyncio-fast>=0.16",
     "pyyaml>=6.0.3",
 ]
 

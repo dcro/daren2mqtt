@@ -14,10 +14,11 @@ much like zigbee2mqtt devices.
 
 ## Hardware
 
-Each pack's RS485 port goes to a serial gateway set up as a **raw TCP server**: 9600 baud
-(some boards use 19200), 8N1, no protocol conversion. The `port` setting defaults to 4196,
-the Waveshare default; other gateways use other ports. Any gateway with a transparent TCP
-mode should work, including ones with several RS485 channels on separate ports or IPs.
+Each pack's RS485 port goes to a serial gateway set up as a **raw TCP server**, or to a
+USB-RS485 adapter (see below): 9600 baud (some boards use 19200), 8N1, no protocol
+conversion. The `port` setting defaults to 4196, the Waveshare default; other gateways use
+other ports. Any gateway with a transparent TCP mode should work, including ones with
+several RS485 channels on separate ports or IPs.
 
 `address` is the pack address set on the BMS DIP switches. In testing, a pack in master mode
 also answered for its slaves, but only with cached values, so query each pack directly when
@@ -25,6 +26,40 @@ you can.
 
 Gateways that accept several TCP clients usually forward every byte on the bus to all of
 them. Run only one polling client per channel at a time, or the requests will collide.
+
+### USB-RS485 adapters
+
+A USB-RS485 adapter can be used directly (experimental: tested on a Waveshare USB TO RS485
+adapter, but not yet on a battery; please report how it works for you). Set `serial` instead
+of `host`, and give the container the device and the group that owns it on the host
+(`stat -c %g /dev/ttyUSB0`):
+
+```yaml
+    devices:
+      - /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0:/dev/ttyUSB0
+    group_add:
+      - "20"
+    environment:
+      DAREN2MQTT_CONFIG: |
+        packs:
+          - id: battery1
+            serial: /dev/ttyUSB0
+            address: 0
+```
+
+The `/dev/serial/by-id/` name stays the same across reboots and replugs, unlike
+`/dev/ttyUSB0`. Packs daisy-chained on one adapter share the port; give each its address.
+
+Alternatively, share the adapter over TCP with
+[ser2net](https://github.com/cminyard/ser2net) on the machine it is plugged into, and point
+`host` at that machine:
+
+```yaml
+# /etc/ser2net.yaml (ser2net 4)
+connection: &bms
+  accepter: tcp,4196
+  connector: serialdev,/dev/ttyUSB0,9600n81,local
+```
 
 ## Compatible batteries
 
@@ -75,7 +110,8 @@ docker compose up -d
 
 The packs show up in Home Assistant under **Settings → Devices & services → MQTT**.
 
-To test one pack without MQTT (prints its device information, counters and state as JSON):
+To test one pack without MQTT (prints everything it reports as JSON; for a USB adapter use
+`/dev/ttyUSB0/0`):
 
 ```bash
 docker run --rm ghcr.io/dcro/daren2mqtt read 192.168.1.50/0
@@ -105,6 +141,10 @@ packs:
     host: 192.168.1.50
     port: 4196
     address: 0        # 0..15
+  - id: battery2
+    serial: /dev/ttyUSB0  # a USB-RS485 adapter instead of a gateway
+    baud: 9600
+    address: 1
 ```
 
 `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` and `MQTT_PASSWORD` override the `mqtt` section.

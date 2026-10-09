@@ -23,7 +23,7 @@ from daren2mqtt.decode import (
     decode_protection_counts,
     decode_thresholds,
 )
-from daren2mqtt.link import Link
+from daren2mqtt.link import Link, SerialLink, TcpLink
 from daren2mqtt.protocol import (
     ProtocolError,
     analog_request,
@@ -116,13 +116,18 @@ class Pack:
 
 
 class Bridge:
-    def __init__(self, config: Config, links: dict[tuple[str, int], Link] | None = None):
+    def __init__(self, config: Config):
         self.config = config
-        links = {} if links is None else links
+        links: dict[tuple, Link] = {}
         self.packs = []
         for p in config.packs:
-            link = links.setdefault((p.host, p.port), Link(p.host, p.port, config.timeout))
-            self.packs.append(Pack(config, p, link))
+            if p.bus not in links:
+                links[p.bus] = (
+                    SerialLink(p.serial, p.baud, config.timeout)
+                    if p.serial
+                    else TcpLink(p.host, p.port, config.timeout)  # type: ignore[arg-type]
+                )
+            self.packs.append(Pack(config, p, links[p.bus]))
         self.publish: Publish | None = None
 
     async def _send(self, topic: str, payload: dict | str, retain: bool = False) -> None:

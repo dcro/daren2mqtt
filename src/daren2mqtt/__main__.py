@@ -11,29 +11,35 @@ import sys
 from daren2mqtt import __version__, config, ha
 from daren2mqtt.bridge import OPTIONAL, healthy, run
 from daren2mqtt.decode import decode_analog
-from daren2mqtt.link import Link
+from daren2mqtt.link import SerialLink, TcpLink
 from daren2mqtt.protocol import ProtocolError, analog_request
 
 log = logging.getLogger("daren2mqtt")
 
 
-def parse_target(text: str) -> tuple[str, int, int]:
-    """``host[:port]/address`` -> (host, port, address)."""
+def parse_target(text: str) -> tuple[str, int | None, int]:
+    """``host[:port]/address`` -> (host, port, address); ``/dev/<port>/address`` -> (device, None,
+    address) for a local serial port."""
     where, _, address = text.rpartition("/")
-    host, _, port = where.partition(":")
     try:
-        if not host:
-            raise ValueError
-        target = host, int(port or 4196), int(address)
+        if where.startswith("/"):
+            target: tuple[str, int | None, int] = (where, None, int(address))
+        else:
+            host, _, port = where.partition(":")
+            if not host:
+                raise ValueError
+            target = (host, int(port or 4196), int(address))
     except ValueError:
-        raise argparse.ArgumentTypeError(f"expected HOST[:PORT]/ADDRESS, got {text!r}") from None
+        raise argparse.ArgumentTypeError(
+            f"expected HOST[:PORT]/ADDRESS or /dev/PORT/ADDRESS, got {text!r}"
+        ) from None
     if not 0 <= target[2] <= 15:
         raise argparse.ArgumentTypeError("address must be 0..15")
     return target
 
 
-async def _read(host: str, port: int, address: int, reply_timeout: float) -> dict:
-    link = Link(host, port, reply_timeout)
+async def _read(where: str, port: int | None, address: int, reply_timeout: float, baud: int) -> dict:
+    link = SerialLink(where, baud, reply_timeout) if port is None else TcpLink(where, port, reply_timeout)
     result: dict = {}
     try:
         analog = decode_analog((await link.request(analog_request(address), address)).info)
@@ -61,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("run", help="run the bridge (default)")
     read = sub.add_parser("read", help="read one pack once and print everything it reports as JSON")
-    read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS")
+    read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS or /dev/PORT/ADDRESS")
+    read.add_argument("--baud", type=int, default=9600, help="serial port baud rate (default 9600)")
     read.add_argument("--timeout", type=float, default=2.0, help="reply timeout in seconds (default 2)")
     sub.add_parser("health", help="exit 0 while a running bridge is connected to MQTT")
     args = parser.parse_args(argv)
@@ -72,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "read":
         logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
         try:
-            result = asyncio.run(_read(*args.target, args.timeout))
+            result = asyncio.run(_read(*args.target, args.timeout, args.baud))
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
             print(f"error: {str(exc) or 'no reply'}", file=sys.stderr)
             return 1

@@ -5,7 +5,7 @@ from simulator import FakeGateway
 from synthetic import analog_reply
 
 from daren2mqtt.decode import decode_analog
-from daren2mqtt.link import Link
+from daren2mqtt.link import TcpLink
 from daren2mqtt.protocol import ProtocolError, analog_request, encode
 
 
@@ -14,7 +14,7 @@ def run(coro):
 
 
 async def _read(gateway: FakeGateway, address: int, reply_timeout: float = 0.5):
-    link = Link("127.0.0.1", gateway.port, timeout=reply_timeout)
+    link = TcpLink("127.0.0.1", gateway.port, timeout=reply_timeout)
     try:
         return await link.request(analog_request(address), address)
     finally:
@@ -74,7 +74,7 @@ def test_silent_pack_times_out():
 def test_silent_pack_keeps_the_connection():
     async def go():
         async with FakeGateway({0: analog_reply(0)}) as gw:
-            link = Link("127.0.0.1", gw.port, timeout=0.2)
+            link = TcpLink("127.0.0.1", gw.port, timeout=0.2)
             try:
                 with pytest.raises(TimeoutError):
                     await link.request(analog_request(5), 5)
@@ -89,7 +89,7 @@ def test_silent_pack_keeps_the_connection():
 def test_requests_are_serialized_and_connection_reused():
     async def go():
         async with FakeGateway({0: analog_reply(0, soc=10.0), 1: analog_reply(1, soc=20.0)}) as gw:
-            link = Link("127.0.0.1", gw.port, timeout=0.5)
+            link = TcpLink("127.0.0.1", gw.port, timeout=0.5)
             try:
                 frames = await asyncio.gather(*(link.request(analog_request(a), a) for a in (0, 1, 0, 1)))
             finally:
@@ -104,7 +104,7 @@ def test_requests_are_serialized_and_connection_reused():
 def test_reconnects_after_the_gateway_drops_the_connection():
     async def go():
         async with FakeGateway({0: analog_reply(0)}) as gw:
-            link = Link("127.0.0.1", gw.port, timeout=0.5)
+            link = TcpLink("127.0.0.1", gw.port, timeout=0.5)
             try:
                 await link.request(analog_request(0), 0)
                 gw.drop()
@@ -121,7 +121,7 @@ def test_reconnects_after_the_gateway_drops_the_connection():
 
 def test_unreachable_gateway():
     async def go():
-        link = Link("127.0.0.1", 1, timeout=0.5)
+        link = TcpLink("127.0.0.1", 1, timeout=0.5)
         await link.request(analog_request(0), 0)
 
     with pytest.raises(OSError):

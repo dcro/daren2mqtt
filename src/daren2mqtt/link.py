@@ -1,8 +1,11 @@
-"""TCP connection to an RS485-to-Ethernet gateway (raw TCP server mode)."""
+"""Connection to the RS485 bus: through an Ethernet gateway (raw TCP server mode) or a local
+serial port (a USB-RS485 adapter)."""
 
 import asyncio
 import contextlib
 import logging
+
+import serial_asyncio_fast
 
 from daren2mqtt.protocol import CID1_BMS, RETURN_CODES, VER, Frame, ProtocolError, decode
 
@@ -10,18 +13,18 @@ log = logging.getLogger(__name__)
 
 
 class Link:
-    """One persistent connection per gateway. RS485 is half duplex, so requests are
-    sent one at a time. Gateways forward every byte on the bus to every TCP client,
-    so a reply is only accepted if it comes from the address that was asked."""
+    """One persistent connection to an RS485 bus. RS485 is half duplex, so requests are sent
+    one at a time. Gateways forward every byte on the bus to every TCP client, so a reply is
+    only accepted if it comes from the address that was asked."""
 
-    def __init__(self, host: str, port: int, timeout: float = 2.0):
-        self.host, self.port, self.timeout = host, port, timeout
+    def __init__(self, timeout: float = 2.0):
+        self.timeout = timeout
         self._lock = asyncio.Lock()
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
-    def __str__(self) -> str:
-        return f"{self.host}:{self.port}"
+    async def _open(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        raise NotImplementedError
 
     async def close(self) -> None:
         if self._writer is not None:
@@ -43,7 +46,7 @@ class Link:
     async def _exchange(self, frame: bytes, address: int) -> Frame:
         if self._writer is None or self._writer.is_closing():
             async with asyncio.timeout(self.timeout):
-                self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+                self._reader, self._writer = await self._open()
             log.info("connected to %s", self)
         assert self._reader is not None
         self._writer.write(frame)
@@ -68,3 +71,32 @@ class Link:
                     reason = RETURN_CODES.get(reply.cid2, "unknown")
                     raise ProtocolError(f"address {address} returned error {reply.cid2:02X} ({reason})")
                 return reply
+
+
+class TcpLink(Link):
+    """An RS485-to-Ethernet gateway in raw TCP server mode."""
+
+    def __init__(self, host: str, port: int, timeout: float = 2.0):
+        super().__init__(timeout)
+        self.host, self.port = host, port
+
+    def __str__(self) -> str:
+        return f"{self.host}:{self.port}"
+
+    async def _open(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        return await asyncio.open_connection(self.host, self.port)
+
+
+class SerialLink(Link):
+    """A local serial port, 8N1, such as a USB-RS485 adapter. Experimental: not yet tried on a
+    battery."""
+
+    def __init__(self, device: str, baud: int = 9600, timeout: float = 2.0):
+        super().__init__(timeout)
+        self.device, self.baud = device, baud
+
+    def __str__(self) -> str:
+        return self.device
+
+    async def _open(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        return await serial_asyncio_fast.open_serial_connection(url=self.device, baudrate=self.baud)

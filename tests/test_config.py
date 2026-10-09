@@ -53,6 +53,11 @@ def test_missing_config(tmp_path):
         "packs:\n  - {id: a, host: h, adress: 1}",
         "interval: 1\npacks:\n  - {id: a, host: h}",
         "positive_current: in\npacks:\n  - {id: a, host: h}",
+        "packs:\n  - {id: a}",
+        "packs:\n  - {id: a, host: h, serial: /dev/ttyUSB0}",
+        "packs:\n  - {id: a, serial: /dev/ttyUSB0}\n  - {id: b, serial: /dev/ttyUSB0}",
+        "packs:\n  - {id: a, serial: /dev/ttyS0}\n  - {id: b, serial: /dev/ttyS0, address: 1, baud: 2400}",
+        "packs:\n  - {id: a, serial: /dev/ttyUSB0, baud: 300}",
         "- not a mapping",
         "packs: [",
         "mqtt: {base_topic: 'bms/#'}\npacks:\n  - {id: a, host: h}",
@@ -94,3 +99,18 @@ def test_positive_current():
     assert load({"DAREN2MQTT_CONFIG": PACKS}).positive_current == "charging"
     config = load({"DAREN2MQTT_CONFIG": "positive_current: discharging\n" + PACKS})
     assert config.positive_current == "discharging"
+
+
+SERIAL_PACKS = """
+packs:
+  - {id: a, serial: /dev/ttyUSB0}
+  - {id: b, serial: /dev/ttyUSB0, address: 1}
+"""
+
+
+def test_serial_packs():
+    c = load({"DAREN2MQTT_CONFIG": SERIAL_PACKS})
+    assert [(p.serial, p.baud, p.bus) for p in c.packs] == [
+        ("/dev/ttyUSB0", 9600, ("serial", "/dev/ttyUSB0")),
+        ("/dev/ttyUSB0", 9600, ("serial", "/dev/ttyUSB0")),
+    ]

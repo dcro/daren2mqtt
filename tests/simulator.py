@@ -1,7 +1,8 @@
-"""A fake RS485 gateway with packs behind it, served over TCP for tests."""
+"""Fake RS485 buses with packs on them, over TCP (a gateway) or a pseudo terminal (a serial port)."""
 
 import asyncio
 import contextlib
+import os
 
 from daren2mqtt.protocol import CID2_ANALOG, decode
 
@@ -60,3 +61,41 @@ class FakeGateway:
         finally:
             self._writers.discard(writer)
             writer.close()
+
+
+def _answer(replies: dict, request: bytes) -> bytes:
+    frame = decode(request)
+    reply = replies.get(frame.adr)
+    if not isinstance(reply, dict):
+        reply = {CID2_ANALOG: reply}
+    reply = reply.get(frame.cid2)
+    return (reply() if callable(reply) else reply) or b""
+
+
+class FakeSerialPort:
+    """A pseudo terminal standing in for a USB-RS485 adapter: ``device`` is opened like
+    /dev/ttyUSB0, and the packs in ``replies`` answer on the other side."""
+
+    def __init__(self, replies: dict):
+        self.replies = replies
+        self.requests: list[bytes] = []
+        self._buffer = b""
+
+    async def __aenter__(self):
+        self._master, self._slave = os.openpty()
+        self.device = os.ttyname(self._slave)
+        asyncio.get_running_loop().add_reader(self._master, self._on_data)
+        return self
+
+    async def __aexit__(self, *exc):
+        asyncio.get_running_loop().remove_reader(self._master)
+        os.close(self._master)
+        os.close(self._slave)
+
+    def _on_data(self):
+        self._buffer += os.read(self._master, 1024)
+        while b"\r" in self._buffer:
+            request, _, self._buffer = self._buffer.partition(b"\r")
+            request += b"\r"
+            self.requests.append(request)
+            os.write(self._master, _answer(self.replies, request))
