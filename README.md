@@ -13,17 +13,31 @@ much like zigbee2mqtt devices.
 
 ## Hardware
 
-Each pack's RS485 port (the "PC" or daisy-chain port) goes to a serial gateway set up as a
-**raw TCP server**: 9600 baud, 8N1, no protocol conversion. The usual port is 4196. Any
-gateway with a transparent TCP mode works, including ones with several RS485 channels on
-separate ports or IPs.
+Each pack's RS485 port goes to a serial gateway set up as a **raw TCP server**: 9600 baud
+(some boards use 19200), 8N1, no protocol conversion. The `port` setting defaults to 4196,
+the Waveshare default; other gateways use other ports. Any gateway with a transparent TCP
+mode should work, including ones with several RS485 channels on separate ports or IPs.
 
-`address` is the pack address set on the BMS DIP switches. A pack in master mode also
-answers for its slaves, but only with cached values, so query each pack directly when you
-can.
+`address` is the pack address set on the BMS DIP switches. In testing, a pack in master mode
+also answered for its slaves, but only with cached values, so query each pack directly when
+you can.
 
-Most gateways forward every byte on the bus to every TCP client. Run only one polling client
-per channel at a time, or the requests will collide.
+Gateways that accept several TCP clients usually forward every byte on the bus to all of
+them. Run only one polling client per channel at a time, or the requests will collide.
+
+## Compatible batteries
+
+Daren (often misspelled Darren) BMS boards are fitted to many 16S 48 V / 51.2 V LiFePO4
+rack and wall batteries from China, from 60 to 300 Ah. The boards are marked DR-JC03,
+DR48100 or DR48100JC-03-V2; their PC software shows models such as DR01 or JC03 (some
+batteries show "DR-POWER") and calls the protocol DR-1363. The BMS version on the battery's
+screen or in the PC software is usually a project code that starts with the cell count and
+capacity, such as 16S100A, 16S100JC03 or 16S200JC26. Brands reported to use these boards
+include Docan, Ecobat, PAPOOL, BLMPOW and XD Battery.
+
+Firmware differs between boards: at least one DR-JC03 battery answers its PC software but
+not the commands other tools send. daren2mqtt has been tested on 16S packs with Waveshare
+gateways; please open an issue with the output of `daren2mqtt read` to add yours.
 
 ## Quick start
 
