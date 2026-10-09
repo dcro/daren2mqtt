@@ -4,6 +4,7 @@ from daren2mqtt.protocol import (
     ProtocolError,
     analog_request,
     checksum,
+    counters_request,
     decode,
     device_request,
     encode,
@@ -55,3 +56,8 @@ def test_device_request_bytes():
     assert device_request(1) == b"~22014A510000FDA0\r"
     with pytest.raises(ValueError):
         device_request(16)
+
+
+def test_counters_request_bytes():
+    assert counters_request(1) == b"~22014AB0600A010104FF00FB6B\r"
+    assert counters_request(0) == b"~22004AB0600A000104FF00FB6D\r"

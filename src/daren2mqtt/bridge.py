@@ -13,14 +13,14 @@ import aiomqtt
 
 from daren2mqtt import ha
 from daren2mqtt.config import Config, PackConfig
-from daren2mqtt.decode import Analog, Device, decode_analog, decode_device
+from daren2mqtt.decode import Analog, Counters, Device, decode_analog, decode_counters, decode_device
 from daren2mqtt.link import Link
-from daren2mqtt.protocol import ProtocolError, analog_request, device_request
+from daren2mqtt.protocol import ProtocolError, analog_request, counters_request, device_request
 
 log = logging.getLogger(__name__)
 
 OFFLINE_AFTER = 3  # consecutive failed reads before a pack is reported unavailable
-DEVICE_TRIES = 3  # attempts to read the device information before doing without it
+TRIES = 3  # attempts at an optional reading (device information, counters) before doing without it
 MQTT_RETRY = 10  # seconds
 HEARTBEAT = 15  # seconds between touches of the health file while connected to MQTT
 HEALTH_FILE = Path(tempfile.gettempdir()) / "daren2mqtt.health"
@@ -37,6 +37,8 @@ class Pack:
         self.layout: tuple[int, int] | None = None  # cells, temperature sensors
         self.device: Device | None = None
         self.device_tries = 0
+        self.counters: Counters | None = None
+        self.counters_fails = 0
         self.described: tuple | None = None  # what the published discovery was built from
 
     def __str__(self) -> str:
@@ -49,6 +51,10 @@ class Pack:
     async def read_device(self) -> Device:
         frame = await self.link.request(device_request(self.cfg.address), self.cfg.address)
         return decode_device(frame.info)
+
+    async def read_counters(self) -> Counters:
+        frame = await self.link.request(counters_request(self.cfg.address), self.cfg.address)
+        return decode_counters(frame.info)
 
 
 class Bridge:
@@ -73,8 +79,10 @@ class Bridge:
 
     async def _discover(self, pack: Pack) -> None:
         assert pack.layout is not None
-        pack.described = (pack.layout, pack.device)
-        payload = ha.discovery(self.config.mqtt, pack.cfg, *pack.layout, pack.device)
+        pack.described = (pack.layout, pack.device, pack.counters is not None)
+        payload = ha.discovery(
+            self.config.mqtt, pack.cfg, *pack.layout, pack.device, pack.counters is not None
+        )
         await self._send(pack.topics["discovery"], payload, retain=True)
 
     async def announce(self) -> None:
@@ -102,20 +110,22 @@ class Bridge:
         if layout != pack.layout:
             log.info("%s: %d cells, %d temperature sensors", pack, *layout)
             pack.layout = layout
-        if pack.device is None and pack.device_tries < DEVICE_TRIES:
+        if pack.device is None and pack.device_tries < TRIES:
             await self._read_device(pack)
-        if (pack.layout, pack.device) != pack.described:
+        if pack.counters is not None or pack.counters_fails < TRIES:
+            await self._read_counters(pack)
+        if (pack.layout, pack.device, pack.counters is not None) != pack.described:
             await self._discover(pack)
         if pack.online is not True:
             await self._set_online(pack, True)
-        await self._send(pack.topics["state"], ha.state(analog))
+        await self._send(pack.topics["state"], ha.state(analog, pack.counters))
 
     async def _read_device(self, pack: Pack) -> None:
         pack.device_tries += 1
         try:
             pack.device = await pack.read_device()
         except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
-            last = pack.device_tries == DEVICE_TRIES
+            last = pack.device_tries == TRIES
             log.log(
                 logging.WARNING if last else logging.DEBUG,
                 "%s: device information unavailable%s: %s",
@@ -128,6 +138,22 @@ class Bridge:
         log.info(
             "%s: model %s, hardware %s, firmware %s", pack, d.model or "?", d.hardware or "?", d.firmware
         )
+
+    async def _read_counters(self, pack: Pack) -> None:
+        try:
+            pack.counters = await pack.read_counters()
+        except (TimeoutError, OSError, EOFError, ProtocolError) as exc:
+            # After a failure the last values stay in the state: a missing key would make
+            # Home Assistant log template errors on every update.
+            pack.counters_fails += 1
+            give_up = pack.counters is None and pack.counters_fails == TRIES
+            log.log(
+                logging.WARNING if give_up else logging.DEBUG,
+                "%s: counters unavailable%s: %s",
+                pack,
+                ", giving up" if give_up else "",
+                str(exc) or "no reply",
+            )
 
     async def poll_forever(self, pack: Pack) -> None:
         loop = asyncio.get_running_loop()

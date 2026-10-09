@@ -239,3 +239,33 @@ def decode_device(info: bytes) -> Device:
         raise ProtocolError(f"51H reply truncated: {len(info)} bytes")
     firmware = ".".join(f"{b:02d}" for b in info[30:33])
     return Device(_ascii(info[0:10]), _ascii(info[10:20]), _ascii(info[20:30]), firmware)
+
+
+@dataclass(frozen=True, slots=True)
+class Counters:
+    """Lifetime counters from parameter module 4 (B0H)."""
+
+    design_ah: float
+    charged_ah: int
+    discharged_ah: int
+    charged_kwh: float  # wraps at 6553.5 kWh
+    discharged_kwh: float
+
+
+def decode_counters(info: bytes) -> Counters:
+    """B0H, command group, operation, module, function, length, then the module data:
+    remaining, full and design capacity (u16, 0.01 Ah), charged and discharged capacity
+    (u32, 1 Ah), charged and discharged energy (u16, 0.1 kWh)."""
+    if len(info) < 24 or info[0] != 0xB0 or info[3] != 0x04:
+        raise ProtocolError(f"unexpected reply to the counters request: {info[:6].hex()}")
+
+    def field(offset: int, size: int) -> int:
+        return int.from_bytes(info[offset : offset + size], "big")
+
+    return Counters(
+        design_ah=field(10, 2) / 100,
+        charged_ah=field(12, 4),
+        discharged_ah=field(16, 4),
+        charged_kwh=field(20, 2) / 10,
+        discharged_kwh=field(22, 2) / 10,
+    )

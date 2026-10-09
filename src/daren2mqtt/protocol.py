@@ -12,6 +12,7 @@ VER = 0x22
 CID1_BMS = 0x4A  # device type: LiFePO4 battery management system
 CID2_ANALOG = 0x42  # read analog values and status
 CID2_DEVICE = 0x51  # read device information (model, hardware, firmware)
+CID2_MODULE = 0xB0  # read or write a parameter module; only reads are built here
 
 RETURN_CODES = {
     0x00: "OK",
@@ -95,3 +96,13 @@ def device_request(address: int) -> bytes:
     """Read the device information of the pack at ``address``; the request has no INFO."""
     _check_address(address)
     return encode(address, CID2_DEVICE)
+
+
+def counters_request(address: int) -> bytes:
+    """Read the lifetime capacity and energy counters (module 4) of the pack at ``address``.
+
+    INFO: command group (the address), operation 01 (read), module 04, function FF (all
+    fields), function length 00.
+    """
+    _check_address(address)
+    return encode(address, CID2_MODULE, bytes([address, 0x01, 0x04, 0xFF, 0x00]))

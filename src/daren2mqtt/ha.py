@@ -5,7 +5,7 @@ Current and power follow the inverter convention: positive while discharging.
 
 from daren2mqtt import __version__
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import Analog, Device, Kind
+from daren2mqtt.decode import Analog, Counters, Device, Kind
 
 MAX_TEXT = 255  # Home Assistant rejects longer sensor states
 
@@ -14,11 +14,11 @@ def _text(items: list[str], empty: str) -> str:
     return ", ".join(items)[:MAX_TEXT] or empty
 
 
-def state(a: Analog) -> dict:
+def state(a: Analog, counters: Counters | None = None) -> dict:
     low, low_index = a.cell_min
     high, high_index = a.cell_max
     problems = {kind: a.flags(kind) for kind in Kind}
-    return {
+    out = {
         "soc": a.soc,
         "voltage": a.voltage,
         "current": round(-a.current, 2) + 0.0,  # + 0.0 turns -0.0 into 0.0
@@ -47,6 +47,13 @@ def state(a: Analog) -> dict:
         "faults": _text(problems[Kind.FAULT], "OK"),
         "problem": bool(problems[Kind.PROTECTION] or problems[Kind.FAULT]),  # alarms are only warnings
     }
+    if counters is not None:
+        out |= {
+            "charged_energy": counters.charged_kwh,
+            "discharged_energy": counters.discharged_kwh,
+            "design_capacity": counters.design_ah,
+        }
+    return out
 
 
 def _measure(name, unit=None, device_class=None, precision=None, state_class="measurement", **extra):
@@ -75,8 +82,8 @@ def _binary(name, device_class=None, **extra):
 DIAGNOSTIC = {"entity_category": "diagnostic"}
 
 
-def components(cells: int, sensors: int) -> dict[str, dict]:
-    return {
+def components(cells: int, sensors: int, counters: bool = False) -> dict[str, dict]:
+    out = {
         "soc": _measure("State of charge", "%", "battery", 0),
         "voltage": _measure("Voltage", "V", "voltage", 2),
         "current": _measure("Current", "A", "current", 2),
@@ -112,6 +119,19 @@ def components(cells: int, sensors: int) -> dict[str, dict]:
         "faults": _text_sensor("Faults", icon="mdi:alert-octagon"),
         "problem": _binary("Problem", "problem"),
     }
+    if counters:
+        # Lifetime totals per pack. Inverters usually report the energy of the whole battery
+        # bank already, so these are for comparing packs rather than for the Energy dashboard.
+        out |= {
+            "charged_energy": _measure("Charged energy", "kWh", "energy", 1, state_class="total_increasing"),
+            "discharged_energy": _measure(
+                "Discharged energy", "kWh", "energy", 1, state_class="total_increasing"
+            ),
+            "design_capacity": _measure(
+                "Design capacity", "Ah", precision=0, icon="mdi:battery-outline", **DIAGNOSTIC
+            ),
+        }
+    return out
 
 
 def topics(mqtt: MqttConfig, pack: PackConfig) -> dict[str, str]:
@@ -125,12 +145,17 @@ def topics(mqtt: MqttConfig, pack: PackConfig) -> dict[str, str]:
 
 
 def discovery(
-    mqtt: MqttConfig, pack: PackConfig, cells: int, sensors: int, device: Device | None = None
+    mqtt: MqttConfig,
+    pack: PackConfig,
+    cells: int,
+    sensors: int,
+    device: Device | None = None,
+    counters: bool = False,
 ) -> dict:
     t = topics(mqtt, pack)
     uid = f"daren2mqtt_{pack.id}"
     cmps = {}
-    for key, cfg in components(cells, sensors).items():
+    for key, cfg in components(cells, sensors, counters).items():
         template = f"{{{{ value_json.{key} }}}}"
         if cfg["p"] == "binary_sensor":
             template = f"{{{{ 'ON' if value_json.{key} else 'OFF' }}}}"

@@ -1,7 +1,7 @@
 import pytest
-from synthetic import DEFAULT_CELLS, analog_info, analog_reply, device_info
+from synthetic import DEFAULT_CELLS, analog_info, analog_reply, counters_info, device_info
 
-from daren2mqtt.decode import Device, Kind, decode_analog, decode_device
+from daren2mqtt.decode import Counters, Device, Kind, decode_analog, decode_counters, decode_device
 from daren2mqtt.protocol import ProtocolError, decode
 
 
@@ -82,3 +82,23 @@ def test_device_text_fields_are_cleaned():
 def test_device_reply_truncated():
     with pytest.raises(ProtocolError, match="51H reply truncated"):
         decode_device(device_info()[:32])
+
+
+def test_counters():
+    info = counters_info(design_ah=200.0, charged_ah=70000, discharged_ah=69000, charged_kwh=6553.5)
+    assert decode_counters(info) == Counters(
+        design_ah=200.0, charged_ah=70000, discharged_ah=69000, charged_kwh=6553.5, discharged_kwh=61.5
+    )
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        counters_info()[:23],
+        b"\xb1" + counters_info()[1:],
+        counters_info()[:3] + b"\x03" + counters_info()[4:],
+    ],
+)
+def test_counters_reject_other_replies(info):
+    with pytest.raises(ProtocolError):
+        decode_counters(info)

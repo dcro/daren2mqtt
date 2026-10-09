@@ -1,4 +1,4 @@
-"""Synthetic 42H and 51H replies built from the documented layout (no captured data)."""
+"""Synthetic 42H, 51H and B0H replies built from the documented layout (no captured data)."""
 
 from daren2mqtt.protocol import encode
 
@@ -47,3 +47,16 @@ def device_info(hardware="HW1", product="ACME01", model="16S100A", firmware=(1, 
 
 def device_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
     return encode(address, rtn, device_info(**kwargs))
+
+
+def counters_info(
+    address=0, design_ah=100.0, charged_ah=1234, discharged_ah=1200, charged_kwh=63.2, discharged_kwh=61.5
+) -> bytes:
+    head = bytes([0xB0, address, 0x01, 0x04, 0xFF, 0x12])
+    capacities = _u16(7550) + _u16(10000) + _u16(round(design_ah * 100))
+    totals = charged_ah.to_bytes(4, "big") + discharged_ah.to_bytes(4, "big")
+    return head + capacities + totals + _u16(round(charged_kwh * 10)) + _u16(round(discharged_kwh * 10))
+
+
+def counters_reply(address: int = 0, rtn: int = 0x00, **kwargs) -> bytes:
+    return encode(address, rtn, counters_info(address, **kwargs))

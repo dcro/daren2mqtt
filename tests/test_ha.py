@@ -3,7 +3,7 @@ from synthetic import analog_info
 
 from daren2mqtt import ha
 from daren2mqtt.config import MqttConfig, PackConfig
-from daren2mqtt.decode import Device, decode_analog
+from daren2mqtt.decode import Counters, Device, decode_analog
 
 PACK = PackConfig(id="battery1", name="Battery 1", host="192.0.2.10")
 
@@ -93,3 +93,17 @@ def test_discovery_device_information():
     unnamed = Device(hardware="", product="", model="", firmware="01.02.03")
     dev = ha.discovery(MqttConfig(), PACK, 16, 4, unnamed)["dev"]
     assert dev["model"] == "16S BMS" and "hw_version" not in dev
+
+
+def test_counters_in_state_and_discovery():
+    counters = Counters(design_ah=280.0, charged_ah=10, discharged_ah=9, charged_kwh=0.5, discharged_kwh=0.4)
+    s = ha.state(decode_analog(analog_info()), counters)
+    assert (s["charged_energy"], s["discharged_energy"], s["design_capacity"]) == (0.5, 0.4, 280.0)
+    assert "charged_energy" not in ha.state(decode_analog(analog_info()))
+    cmps = ha.discovery(MqttConfig(), PACK, 16, 4, counters=True)["cmps"]
+    assert (
+        cmps["charged_energy"]["device_class"] == "energy"
+        and cmps["charged_energy"]["unit_of_measurement"] == "kWh"
+    )
+    assert cmps["design_capacity"]["entity_category"] == "diagnostic"
+    assert "charged_energy" not in ha.discovery(MqttConfig(), PACK, 16, 4)["cmps"]

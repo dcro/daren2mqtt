@@ -10,9 +10,9 @@ import sys
 
 from daren2mqtt import __version__, config, ha
 from daren2mqtt.bridge import healthy, run
-from daren2mqtt.decode import decode_analog, decode_device
+from daren2mqtt.decode import decode_analog, decode_counters, decode_device
 from daren2mqtt.link import Link
-from daren2mqtt.protocol import ProtocolError, analog_request, device_request
+from daren2mqtt.protocol import ProtocolError, analog_request, counters_request, device_request
 
 log = logging.getLogger("daren2mqtt")
 
@@ -34,15 +34,24 @@ def parse_target(text: str) -> tuple[str, int, int]:
 
 async def _read(host: str, port: int, address: int, reply_timeout: float) -> dict:
     link = Link(host, port, reply_timeout)
-    try:
-        state = ha.state(decode_analog((await link.request(analog_request(address), address)).info))
+
+    async def optional(request: bytes, decoder):
         try:
-            device = decode_device((await link.request(device_request(address), address)).info)
+            return decoder((await link.request(request, address)).info)
         except (TimeoutError, ProtocolError):
-            device = None  # optional: the state is what matters
+            return None  # the state is what matters
+
+    try:
+        analog = decode_analog((await link.request(analog_request(address), address)).info)
+        device = await optional(device_request(address), decode_device)
+        counters = await optional(counters_request(address), decode_counters)
     finally:
         await link.close()
-    return {"device": dataclasses.asdict(device) if device else None, "state": state}
+    return {
+        "device": dataclasses.asdict(device) if device else None,
+        "counters": dataclasses.asdict(counters) if counters else None,
+        "state": ha.state(analog),
+    }
 
 
 async def _run(cfg: config.Config) -> None:
@@ -58,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("run", help="run the bridge (default)")
     read = sub.add_parser(
-        "read", help="read one pack once and print its device information and state as JSON"
+        "read", help="read one pack once and print its device information, counters and state as JSON"
     )
     read.add_argument("target", type=parse_target, metavar="HOST[:PORT]/ADDRESS")
     read.add_argument("--timeout", type=float, default=2.0, help="reply timeout in seconds (default 2)")

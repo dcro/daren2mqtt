@@ -2,9 +2,9 @@ import asyncio
 import json
 
 from simulator import FakeGateway
-from synthetic import analog_reply, device_reply
+from synthetic import analog_reply, counters_reply, device_reply
 
-from daren2mqtt.bridge import DEVICE_TRIES, OFFLINE_AFTER, Bridge
+from daren2mqtt.bridge import OFFLINE_AFTER, TRIES, Bridge
 from daren2mqtt.config import Config
 
 
@@ -117,7 +117,7 @@ def test_device_information_in_discovery():
     sent, requests = asyncio.run(go())
     discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
     assert len(discoveries) == 1 and discoveries[0]["dev"]["model"] == "16S100A"
-    assert [r[7:9] for r in requests] == [b"42", b"51", b"42"]  # read once, not on every poll
+    assert [r[7:9] for r in requests if r[7:9] != b"B0"] == [b"42", b"51", b"42"]  # read once
 
 
 def test_device_information_is_optional():
@@ -131,7 +131,7 @@ def test_device_information_is_optional():
             first = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
             replies[1][0x51] = device_reply(1, model="16S100A")
             await bridge.poll(pack)  # device information arrives later: discovery again
-            for _ in range(DEVICE_TRIES):
+            for _ in range(TRIES):
                 await bridge.poll(pack)
             await bridge.close()
             return first, sent, gw.requests
@@ -147,10 +147,49 @@ def test_device_information_gives_up():
     async def go():
         async with FakeGateway({1: {0x42: analog_reply(1)}}) as gw:
             bridge, sent = make_bridge(gw.port)
-            for _ in range(DEVICE_TRIES + 2):
+            for _ in range(TRIES + 2):
                 await bridge.poll(bridge.packs[0])
             await bridge.close()
             return gw.requests
 
     requests = asyncio.run(go())
-    assert sum(r[7:9] == b"51" for r in requests) == DEVICE_TRIES
+    assert sum(r[7:9] == b"51" for r in requests) == TRIES
+
+
+def test_counters_on_every_poll():
+    replies = {1: {0x42: analog_reply(1), 0xB0: counters_reply(1, charged_kwh=63.2)}}
+
+    async def go():
+        async with FakeGateway(replies) as gw:
+            bridge, sent = make_bridge(gw.port)
+            pack = bridge.packs[0]
+            await bridge.poll(pack)
+            replies[1][0xB0] = counters_reply(1, charged_kwh=64.0)
+            await bridge.poll(pack)
+            del replies[1][0xB0]  # a failed read keeps the last values
+            await bridge.poll(pack)
+            await bridge.close()
+            return sent, gw.requests
+
+    sent, requests = asyncio.run(go())
+    assert sum(r[7:9] == b"B0" for r in requests) == 3
+    states = [json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a"]
+    assert [s["charged_energy"] for s in states] == [63.2, 64.0, 64.0]
+    discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
+    assert discovery["cmps"]["charged_energy"]["state_class"] == "total_increasing"
+
+
+def test_counters_are_optional():
+    async def go():
+        async with FakeGateway({1: {0x42: analog_reply(1)}}) as gw:
+            bridge, sent = make_bridge(gw.port)
+            for _ in range(TRIES + 2):
+                await bridge.poll(bridge.packs[0])
+            await bridge.close()
+            return sent, gw.requests
+
+    sent, requests = asyncio.run(go())
+    assert sum(r[7:9] == b"B0" for r in requests) == TRIES
+    discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
+    assert "charged_energy" not in discovery["cmps"]
+    assert all("charged_energy" not in json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a")
