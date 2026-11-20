@@ -17,6 +17,8 @@ class Link:
     one at a time. Gateways forward every byte on the bus to every TCP client, so a reply is
     only accepted if it comes from the address that was asked."""
 
+    RESENDS = 1  # times a request is sent again when its reply is lost or damaged on the bus
+
     def __init__(self, timeout: float = 2.0):
         self.timeout = timeout
         self._lock = asyncio.Lock()
@@ -36,6 +38,11 @@ class Link:
     async def request(self, frame: bytes, address: int) -> Frame:
         async with self._lock:
             try:
+                for _ in range(self.RESENDS):
+                    try:
+                        return await self._exchange(frame, address)
+                    except TimeoutError:
+                        log.debug("%s: no reply from address %d, resending", self, address)
                 return await self._exchange(frame, address)
             except TimeoutError:
                 raise  # a silent pack is not a broken connection
