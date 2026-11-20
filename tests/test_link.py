@@ -1,11 +1,12 @@
 import asyncio
+import time
 
 import pytest
 from simulator import FakeGateway
 from synthetic import analog_reply
 
 from daren2mqtt.decode import decode_analog
-from daren2mqtt.link import TcpLink
+from daren2mqtt.link import REQUEST_GAP, TcpLink
 from daren2mqtt.protocol import ProtocolError, analog_request, encode
 
 
@@ -99,6 +100,26 @@ def test_requests_are_serialized_and_connection_reused():
     socs, connections = run(go())
     assert socs == [10.0, 20.0, 10.0, 20.0]
     assert connections == 1
+
+
+def test_requests_are_spaced_out():
+    arrivals: list[float] = []
+
+    def reply():
+        arrivals.append(time.monotonic())
+        return analog_reply(0)
+
+    async def go():
+        async with FakeGateway({0: reply}) as gw:
+            link = TcpLink("127.0.0.1", gw.port, timeout=0.5)
+            try:
+                for _ in range(2):
+                    await link.request(analog_request(0), 0)
+            finally:
+                await link.close()
+
+    run(go())
+    assert arrivals[1] - arrivals[0] >= REQUEST_GAP
 
 
 def test_reconnects_after_the_gateway_drops_the_connection():

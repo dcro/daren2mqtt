@@ -11,6 +11,10 @@ from daren2mqtt.protocol import CID1_BMS, RETURN_CODES, VER, Frame, ProtocolErro
 
 log = logging.getLogger(__name__)
 
+# Some packs ignore a request that follows their reply too closely, probably because they are
+# still driving the bus, so every request waits this long first.
+REQUEST_GAP = 0.1  # seconds
+
 
 class Link:
     """One persistent connection to an RS485 bus. RS485 is half duplex, so requests are sent
@@ -49,6 +53,7 @@ class Link:
                 self._reader, self._writer = await self._open()
             log.info("connected to %s", self)
         assert self._reader is not None
+        await asyncio.sleep(REQUEST_GAP)
         self._writer.write(frame)
         await self._writer.drain()
         async with asyncio.timeout(self.timeout):
