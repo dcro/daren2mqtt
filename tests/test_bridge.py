@@ -7,6 +7,7 @@ from synthetic import counters_reply, device_reply, pack_replies
 
 from daren2mqtt.bridge import OFFLINE_AFTER, TRIES, Bridge
 from daren2mqtt.config import Config
+from daren2mqtt.link import Link
 
 
 def make_bridge(port: int, **options) -> tuple[Bridge, list]:
@@ -142,7 +143,7 @@ def test_device_information_is_optional():
     assert first[0]["dev"]["model"] == "16S BMS"
     discoveries = [json.loads(p) for t, p, _ in sent if t.endswith("/config")]
     assert [d["dev"]["model"] for d in discoveries] == ["16S BMS", "16S100A"]
-    assert sum(r[7:9] == b"51" for r in requests) == 2
+    assert sum(r[7:9] == b"51" for r in requests) == 2 + Link.RESENDS
 
 
 def test_counters_on_every_poll():
@@ -161,7 +162,7 @@ def test_counters_on_every_poll():
             return sent, gw.requests
 
     sent, requests = asyncio.run(go())
-    assert sum(r[7:9] == b"B0" for r in requests) == 3
+    assert sum(r[7:9] == b"B0" for r in requests) == 3 + Link.RESENDS
     states = [json.loads(p) for t, p, _ in sent if t == "daren2mqtt/a"]
     assert [s["charged_energy"] for s in states] == [63.2, 64.0, 64.0]
     discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
@@ -243,7 +244,7 @@ def test_optional_readings_give_up(command, key):
             return sent, gw.requests
 
     sent, requests = asyncio.run(go())
-    assert sum(r[7:9] == f"{command:02X}".encode() for r in requests) == TRIES
+    assert sum(r[7:9] == f"{command:02X}".encode() for r in requests) == TRIES * (1 + Link.RESENDS)
     if key is not None:  # nothing of it in the discovery or in any state
         discovery = next(json.loads(p) for t, p, _ in sent if t.endswith("/config"))
         assert key not in discovery["cmps"]

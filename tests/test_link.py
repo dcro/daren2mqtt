@@ -86,6 +86,19 @@ def test_silent_pack_keeps_the_connection():
     assert run(go()) == 1
 
 
+def test_damaged_reply_is_asked_again():
+    good = analog_reply(0, soc=33.0)
+    replies = iter([good[:20] + bytes([good[20] ^ 0x01]) + good[21:], good])  # one bit flipped
+
+    async def go():
+        async with FakeGateway({0: lambda: next(replies)}) as gw:
+            frame = await _read(gw, 0, reply_timeout=0.3)
+            return decode_analog(frame.info), len(gw.requests)
+
+    analog, requests = run(go())
+    assert analog.soc == pytest.approx(33.0) and requests == 2
+
+
 def test_requests_are_serialized_and_connection_reused():
     async def go():
         async with FakeGateway({0: analog_reply(0, soc=10.0), 1: analog_reply(1, soc=20.0)}) as gw:
